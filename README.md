@@ -43,12 +43,16 @@ The existing projects with similar goals are: [Syncthing](https://docs.syncthing
 - (10 pt) Users can register, log in, and create or join a room
 - (10 pt) File creation, modification, and deletion are synchronized correctly across connected clients
 - (10 pt) Version control allows users to review and roll back file history
-- (10 pt) Files are compressed during transfer when applicable
 - (10 pt) The system handles invalid requests and basic security risks safely and robustly
 - (10 pt) The project website and admin dashboard are clear, usable, and visually polished
 
 **Best Practices**
 - (3 pt) Code is readable and well formatted
 - (2 pt) All website pages pass the HTML validator
+
+**Creative Portion**
+- (10 pt) TBD
+
+Approved by Edgar
 
 
