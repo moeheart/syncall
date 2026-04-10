@@ -1,0 +1,46 @@
+{
+  "name": "@syncall/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Syncall desktop client",
+  "author": "Syncall Team",
+  "type": "module",
+  "main": "src/electron/main.mjs",
+  "scripts": {
+    "build": "vite build",
+    "dev": "concurrently -k \"vite --port 5173\" \"wait-on tcp:5173 && electron src/electron/main.mjs\"",
+    "package:dir": "npm run build && electron-builder --win dir",
+    "package:win": "npm run build && electron-builder --win nsis",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "build": {
+    "appId": "edu.washu.syncall",
+    "files": [
+      "dist/**/*",
+      "src/electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "dependencies": {
+    "@syncall/shared": "0.1.0",
+    "chokidar": "^4.0.3",
+    "socket.io-client": "^4.8.1",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.3",
+    "concurrently": "^9.1.2",
+    "electron": "35.1.4",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2",
+    "wait-on": "^8.0.3"
+  }
+}

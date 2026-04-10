@@ -1,0 +1,25 @@
+{
+  "name": "syncall",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace @syncall/server",
+    "dev:server": "npm run dev --workspace @syncall/server",
+    "dev:web": "npm run dev --workspace @syncall/web",
+    "dev:desktop": "npm run dev --workspace @syncall/desktop",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate --workspace @syncall/server",
+    "prisma:migrate": "npm run prisma:migrate --workspace @syncall/server"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
+

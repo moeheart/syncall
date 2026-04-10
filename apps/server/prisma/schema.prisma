@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  MEMBER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+}
+
+enum SyncEventType {
+  FILE_UPLOADED
+  FILE_DELETED
+  FILE_RESTORED
+}
+
+model User {
+  id               String              @id @default(cuid())
+  username         String              @unique
+  email            String              @unique
+  passwordHash     String
+  createdAt        DateTime            @default(now())
+  roomsOwned       Room[]              @relation("RoomOwner")
+  memberships      RoomMembership[]
+  folderBindings   ClientFolderBinding[]
+  sentInvites      RoomInvite[]        @relation("InviteSender")
+  receivedInvites  RoomInvite[]        @relation("InviteRecipient")
+  uploadedVersions FileVersion[]       @relation("VersionUploader")
+  syncEvents       SyncEvent[]         @relation("SyncActor")
+}
+
+model Room {
+  id             String              @id @default(cuid())
+  name           String
+  ownerId        String
+  owner          User                @relation("RoomOwner", fields: [ownerId], references: [id])
+  createdAt      DateTime            @default(now())
+  memberships    RoomMembership[]
+  invites        RoomInvite[]
+  files          FileEntry[]
+  folderBindings ClientFolderBinding[]
+  syncEvents     SyncEvent[]
+}
+
+model RoomMembership {
+  id        String         @id @default(cuid())
+  roomId    String
+  userId    String
+  role      MembershipRole @default(MEMBER)
+  createdAt DateTime       @default(now())
+  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model RoomInvite {
+  id           String       @id @default(cuid())
+  roomId        String
+  inviterId     String
+  inviteeId     String
+  status        InviteStatus @default(PENDING)
+  createdAt     DateTime     @default(now())
+  acceptedAt    DateTime?
+  room          Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  inviter       User         @relation("InviteSender", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee       User         @relation("InviteRecipient", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, inviteeId, status])
+}
+
+model ClientFolderBinding {
+  id            String   @id @default(cuid())
+  roomId         String
+  userId         String
+  clientLabel    String?
+  localFolder    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model FileEntry {
+  id           String        @id @default(cuid())
+  roomId        String
+  relativePath  String
+  currentVersionId String?      @unique
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  room          Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  currentVersion FileVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions      FileVersion[] @relation("FileVersions")
+
+  @@unique([roomId, relativePath])
+}
+
+model FileVersion {
+  id                    String       @id @default(cuid())
+  fileEntryId           String
+  parentVersionId       String?
+  storagePath           String
+  checksum              String
+  versionNumber         Int
+  originalSize          Int
+  compressedSize        Int
+  compressionAlgorithm  String
+  isConflict            Boolean      @default(false)
+  uploaderId            String
+  createdAt             DateTime     @default(now())
+  fileEntry             FileEntry     @relation("FileVersions", fields: [fileEntryId], references: [id], onDelete: Cascade)
+  parentVersion         FileVersion?  @relation("FileVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions         FileVersion[] @relation("FileVersionParent")
+  uploader              User          @relation("VersionUploader", fields: [uploaderId], references: [id], onDelete: Restrict)
+  activeForFileEntry    FileEntry?    @relation("CurrentVersion")
+
+  @@unique([fileEntryId, versionNumber])
+}
+
+model SyncEvent {
+  id           String        @id @default(cuid())
+  roomId        String
+  actorId       String
+  type          SyncEventType
+  relativePath  String
+  createdAt     DateTime      @default(now())
+  room          Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  actor         User          @relation("SyncActor", fields: [actorId], references: [id], onDelete: Restrict)
+}
