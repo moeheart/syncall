@@ -104,5 +104,8 @@ export class StateStore {
   getUser() {
     return this.state.user;
   }
-}
 
+  getProfile() {
+    return path.basename(this.filePath, path.extname(this.filePath));
+  }
+}

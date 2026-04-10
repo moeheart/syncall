@@ -66,6 +66,14 @@ export class ApiClient {
     return this.request("/invites");
   }
 
+  listUsers() {
+    return this.request("/users");
+  }
+
+  listRoomMembers(roomId) {
+    return this.request(`/rooms/${roomId}/members`);
+  }
+
   createInvite(roomId, username) {
     return this.request(`/rooms/${roomId}/invites`, {
       method: "POST",

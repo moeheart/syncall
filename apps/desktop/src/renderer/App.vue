@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import type { FileVersionSummary, InviteSummary, RoomSummary, SyncEventSummary } from "@syncall/shared";
+import { computed, onMounted, ref, watch } from "vue";
+import type { FileVersionSummary, InviteSummary, RoomMemberSummary, RoomSummary, SyncEventSummary, UserSummary } from "@syncall/shared";
 
 interface DesktopState {
   serverUrl: string;
@@ -13,9 +13,11 @@ interface DashboardPayload {
   rooms: RoomSummary[];
   invites: InviteSummary[];
   events: SyncEventSummary[];
+  users: UserSummary[];
   bindings: Record<string, { folderPath: string }>;
   user: DesktopState["user"];
   serverUrl: string;
+  profile: string;
 }
 
 declare global {
@@ -30,6 +32,7 @@ declare global {
       createRoom: (name: string) => Promise<DashboardPayload>;
       inviteUser: (roomId: string, username: string) => Promise<DashboardPayload>;
       acceptInvite: (inviteId: string) => Promise<DashboardPayload>;
+      listRoomMembers: (roomId: string) => Promise<{ members: RoomMemberSummary[] }>;
       chooseFolder: () => Promise<string | null>;
       bindFolder: (roomId: string, folderPath: string) => Promise<DashboardPayload>;
       listHistory: (roomId: string, relativePath: string) => Promise<{ versions: FileVersionSummary[] }>;
@@ -48,6 +51,8 @@ const state = ref<DesktopState>({
 const rooms = ref<RoomSummary[]>([]);
 const invites = ref<InviteSummary[]>([]);
 const events = ref<SyncEventSummary[]>([]);
+const users = ref<UserSummary[]>([]);
+const members = ref<RoomMemberSummary[]>([]);
 const selectedRoomId = ref("");
 const selectedHistoryPath = ref("");
 const historyVersions = ref<FileVersionSummary[]>([]);
@@ -59,37 +64,94 @@ const email = ref("");
 const password = ref("");
 const newRoomName = ref("");
 const inviteUsername = ref("");
+const userSearch = ref("");
 const serverUrlInput = ref("http://localhost:4000");
 const errorMessage = ref("");
+const profileName = ref("default");
+const bridgeReady = computed(() => typeof window !== "undefined" && typeof window.syncall !== "undefined");
 
 const isAuthenticated = computed(() => Boolean(state.value.token && state.value.user));
 const selectedRoom = computed(() => rooms.value.find((room) => room.id === selectedRoomId.value) ?? null);
+const filteredUsers = computed(() => {
+  const query = userSearch.value.trim().toLowerCase();
+  const memberUsernames = new Set(members.value.map((member) => member.username));
+
+  return users.value.filter((user) => {
+    if (memberUsernames.has(user.username)) {
+      return false;
+    }
+
+    if (!query) {
+      return true;
+    }
+
+    return user.username.toLowerCase().includes(query) || user.email.toLowerCase().includes(query);
+  });
+});
 
 function applyDashboard(payload: DashboardPayload) {
   rooms.value = payload.rooms;
   invites.value = payload.invites;
   events.value = payload.events;
+  users.value = payload.users;
   state.value.user = payload.user;
   state.value.serverUrl = payload.serverUrl;
   state.value.bindings = payload.bindings;
   state.value.token = "session";
   serverUrlInput.value = payload.serverUrl;
-  if (!selectedRoomId.value && payload.rooms.length > 0) {
+  profileName.value = payload.profile;
+
+  if (payload.rooms.length === 0) {
+    selectedRoomId.value = "";
+    members.value = [];
+    return;
+  }
+
+  const hasSelection = payload.rooms.some((room) => room.id === selectedRoomId.value);
+  if (!hasSelection) {
     selectedRoomId.value = payload.rooms[0].id;
   }
 }
 
+async function loadMembers(roomId: string) {
+  if (!bridgeReady.value || !roomId) {
+    return;
+  }
+
+  const response = await window.syncall.listRoomMembers(roomId);
+  members.value = response.members;
+}
+
 async function refreshDashboard() {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    return;
+  }
+
   applyDashboard(await window.syncall.fetchDashboard());
+
+  if (selectedRoomId.value) {
+    await loadMembers(selectedRoomId.value);
+  }
 }
 
 async function saveServerUrl() {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    return;
+  }
   state.value = await window.syncall.setServerUrl(serverUrlInput.value);
 }
 
 async function submitAuth() {
   loading.value = true;
   errorMessage.value = "";
+
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    loading.value = false;
+    return;
+  }
 
   try {
     const payload =
@@ -102,6 +164,9 @@ async function submitAuth() {
           });
 
     applyDashboard(payload);
+    if (selectedRoomId.value) {
+      await loadMembers(selectedRoomId.value);
+    }
   } catch (error) {
     errorMessage.value = (error as Error).message;
   } finally {
@@ -110,26 +175,48 @@ async function submitAuth() {
 }
 
 async function createRoom() {
-  if (!newRoomName.value) {
+  if (!newRoomName.value || !bridgeReady.value) {
     return;
   }
   applyDashboard(await window.syncall.createRoom(newRoomName.value));
   newRoomName.value = "";
+  if (selectedRoomId.value) {
+    await loadMembers(selectedRoomId.value);
+  }
 }
 
-async function inviteUser() {
-  if (!selectedRoomId.value || !inviteUsername.value) {
+async function inviteUser(usernameToInvite = inviteUsername.value) {
+  if (!selectedRoomId.value || !usernameToInvite || !bridgeReady.value) {
     return;
   }
-  applyDashboard(await window.syncall.inviteUser(selectedRoomId.value, inviteUsername.value));
-  inviteUsername.value = "";
+
+  errorMessage.value = "";
+
+  try {
+    applyDashboard(await window.syncall.inviteUser(selectedRoomId.value, usernameToInvite));
+    inviteUsername.value = "";
+    await loadMembers(selectedRoomId.value);
+  } catch (error) {
+    errorMessage.value = (error as Error).message;
+  }
 }
 
 async function acceptInvite(inviteId: string) {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    return;
+  }
   applyDashboard(await window.syncall.acceptInvite(inviteId));
+  if (selectedRoomId.value) {
+    await loadMembers(selectedRoomId.value);
+  }
 }
 
 async function bindFolder(roomId: string) {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    return;
+  }
   const folderPath = await window.syncall.chooseFolder();
   if (!folderPath) {
     return;
@@ -138,7 +225,7 @@ async function bindFolder(roomId: string) {
 }
 
 async function loadHistory(relativePath: string) {
-  if (!selectedRoomId.value || !relativePath) {
+  if (!selectedRoomId.value || !relativePath || !bridgeReady.value) {
     return;
   }
   selectedHistoryPath.value = relativePath;
@@ -147,7 +234,7 @@ async function loadHistory(relativePath: string) {
 }
 
 async function restoreVersion(versionId: string) {
-  if (!selectedRoomId.value) {
+  if (!selectedRoomId.value || !bridgeReady.value) {
     return;
   }
   await window.syncall.restoreVersion(selectedRoomId.value, versionId);
@@ -155,14 +242,33 @@ async function restoreVersion(versionId: string) {
 }
 
 async function logout() {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge is unavailable. Please restart the client.";
+    return;
+  }
   state.value = await window.syncall.logout();
   rooms.value = [];
   invites.value = [];
   events.value = [];
+  users.value = [];
+  members.value = [];
   historyVersions.value = [];
 }
 
+watch(selectedRoomId, async (roomId) => {
+  if (roomId) {
+    await loadMembers(roomId);
+  } else {
+    members.value = [];
+  }
+});
+
 onMounted(async () => {
+  if (!bridgeReady.value) {
+    errorMessage.value = "Desktop bridge failed to load. Close the app and open the newest build.";
+    return;
+  }
+
   state.value = await window.syncall.getState();
   serverUrlInput.value = state.value.serverUrl;
   if (state.value.token) {
@@ -184,8 +290,13 @@ onMounted(async () => {
   <main class="layout">
     <section class="sidebar">
       <div class="brand-card">
-        <p class="eyebrow">Syncall Desktop</p>
-        <h1>Real-time room sync for shared log folders.</h1>
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Syncall Desktop</p>
+            <h1>Real-time room sync for shared log folders.</h1>
+          </div>
+          <span class="profile-chip">Profile: {{ profileName }}</span>
+        </div>
         <p class="muted">
           Electron watches the local filesystem, compresses log-heavy uploads, and keeps rollback history
           available from one place.
@@ -201,6 +312,7 @@ onMounted(async () => {
       </div>
 
       <div v-if="!isAuthenticated" class="panel auth-panel">
+        <p v-if="!bridgeReady" class="error-text">Desktop bridge failed to load. Rebuild or restart the client.</p>
         <div class="segmented">
           <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">Login</button>
           <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">Register</button>
@@ -209,7 +321,6 @@ onMounted(async () => {
         <input v-model="email" type="email" placeholder="Email" />
         <input v-model="password" type="password" placeholder="Password" />
         <button @click="submitAuth">{{ loading ? "Working..." : authMode === "login" ? "Sign in" : "Create account" }}</button>
-        <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
       </div>
 
       <div v-else class="panel">
@@ -231,6 +342,8 @@ onMounted(async () => {
     </section>
 
     <section class="content">
+      <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
+
       <div class="panel-grid">
         <article class="panel">
           <div class="panel-header">
@@ -286,7 +399,7 @@ onMounted(async () => {
       </div>
 
       <article class="panel detail-panel" v-if="selectedRoom">
-        <div class="panel-header">
+        <div class="panel-header detail-header">
           <div>
             <p class="eyebrow">Selected room</p>
             <h2>{{ selectedRoom.name }}</h2>
@@ -294,14 +407,39 @@ onMounted(async () => {
           <button @click="bindFolder(selectedRoom.id)">Bind local folder</button>
         </div>
 
-        <div class="two-column">
-          <section class="stack">
-            <h3>Invite a teammate</h3>
+        <div class="detail-grid">
+          <section class="panel inner-panel">
+            <h3>Members in this room</h3>
+            <ul class="compact-list">
+              <li v-for="member in members" :key="member.id">
+                <strong>{{ member.username }}</strong>
+                <span>{{ member.email }}</span>
+                <small>{{ member.role }}</small>
+              </li>
+              <li v-if="members.length === 0" class="muted">No members loaded yet.</li>
+            </ul>
+          </section>
+
+          <section class="panel inner-panel">
+            <h3>Invite by username</h3>
             <div class="inline-form">
               <input v-model="inviteUsername" placeholder="Username" />
-              <button @click="inviteUser">Invite</button>
+              <button @click="inviteUser()">Invite</button>
             </div>
 
+            <h3>Available users</h3>
+            <input v-model="userSearch" placeholder="Search users by name or email" />
+            <ul class="compact-list">
+              <li v-for="user in filteredUsers" :key="user.id">
+                <strong>{{ user.username }}</strong>
+                <span>{{ user.email }}</span>
+                <button class="secondary small" @click="inviteUser(user.username)">Invite</button>
+              </li>
+              <li v-if="filteredUsers.length === 0" class="muted">No additional users available to invite.</li>
+            </ul>
+          </section>
+
+          <section class="panel inner-panel">
             <h3>Folder binding</h3>
             <p class="muted">{{ state.bindings[selectedRoom.id]?.folderPath ?? "No folder bound yet." }}</p>
 
@@ -310,9 +448,7 @@ onMounted(async () => {
               <input v-model="selectedHistoryPath" placeholder="relative/path/to/log.txt" />
               <button class="secondary" @click="loadHistory(selectedHistoryPath)">Load</button>
             </div>
-          </section>
 
-          <section class="stack">
             <h3>Version history</h3>
             <ul class="history-list">
               <li v-for="version in historyVersions" :key="version.id">
@@ -340,19 +476,22 @@ onMounted(async () => {
 <style scoped>
 :global(body) {
   margin: 0;
-  min-width: 1180px;
+  min-width: 0;
   font-family: "Segoe UI", sans-serif;
   background: linear-gradient(180deg, #020617 0%, #0f172a 45%, #132742 100%);
   color: #e2e8f0;
 }
 
+:global(*) {
+  box-sizing: border-box;
+}
+
 .layout {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 20px;
   min-height: 100vh;
   padding: 20px;
-  box-sizing: border-box;
 }
 
 .sidebar,
@@ -364,6 +503,14 @@ onMounted(async () => {
 .history-list {
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+
+.panel,
+.brand-card,
+.inner-panel {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .panel,
@@ -375,9 +522,11 @@ onMounted(async () => {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
 }
 
-.brand-card h1,
+.panel h1,
 .panel h2,
 .panel h3,
+.brand-card h1,
+.brand-card p,
 .panel p {
   margin-top: 0;
 }
@@ -396,16 +545,34 @@ span {
   color: rgba(226, 232, 240, 0.72);
 }
 
-.panel-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.profile-chip {
+  align-self: flex-start;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+  color: #a5f3fc;
+  font-size: 0.9rem;
+  white-space: nowrap;
 }
 
+.panel-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.detail-header,
 .panel-header,
 .inline-form,
 .segmented {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .panel-header {
@@ -413,7 +580,7 @@ span {
 }
 
 .inline-form input {
-  flex: 1;
+  flex: 1 1 180px;
 }
 
 input,
@@ -421,9 +588,11 @@ button {
   border: none;
   border-radius: 12px;
   font: inherit;
+  max-width: 100%;
 }
 
 input {
+  width: 100%;
   padding: 12px 14px;
   background: rgba(30, 41, 59, 0.88);
   color: inherit;
@@ -446,7 +615,7 @@ button {
 }
 
 .segmented button {
-  flex: 1;
+  flex: 1 1 120px;
   background: rgba(30, 41, 59, 0.9);
 }
 
@@ -471,6 +640,7 @@ button {
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid rgba(71, 85, 105, 0.34);
+  overflow-wrap: anywhere;
 }
 
 .room-list li {
@@ -486,13 +656,22 @@ button {
   margin-top: 20px;
 }
 
-.two-column {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 24px;
+.error-banner,
+.error-text {
+  color: #fecaca;
 }
 
-.error-text {
-  color: #fca5a5;
+.error-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(127, 29, 29, 0.45);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

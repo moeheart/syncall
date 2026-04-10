@@ -3,7 +3,7 @@ import { createRoomSchema, inviteIdSchema, inviteUserSchema } from "@syncall/sha
 import { InviteStatus, MembershipRole } from "@prisma/client";
 import { SOCKET_EVENTS } from "@syncall/shared";
 import { prisma } from "../lib/prisma";
-import { createRoom, ensureRoomMembership, listInvitesForUser, listRoomsForUser } from "../services/room-service";
+import { createRoom, ensureRoomMembership, listDiscoverableUsers, listInvitesForUser, listMembersForRoom, listRoomsForUser } from "../services/room-service";
 import { toInviteSummary, toRoomSummary, toSyncEventSummary } from "../utils/serialization";
 
 const roomRoutes: FastifyPluginAsync = async (app) => {
@@ -36,27 +36,68 @@ const roomRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(404).send({ message: "User not found." });
     }
 
-    const invite = await prisma.roomInvite.create({
-      data: {
-        roomId,
-        inviterId: request.user.id,
-        inviteeId: invitee.id
-      },
-      include: {
-        room: true,
-        inviter: {
-          select: { username: true }
-        },
-        invitee: {
-          select: { username: true }
+    if (invitee.id === request.user.id) {
+      return reply.code(400).send({ message: "You are already in this room." });
+    }
+
+    const existingMembership = await prisma.roomMembership.findUnique({
+      where: {
+        roomId_userId: {
+          roomId,
+          userId: invitee.id
         }
       }
     });
 
-    const payload = toInviteSummary(invite);
-    app.io.emit(SOCKET_EVENTS.inviteReceived, payload);
+    if (existingMembership) {
+      return reply.code(400).send({ message: "This user is already in the room." });
+    }
 
-    return reply.code(201).send({ invite: payload });
+    try {
+      const invite = await prisma.roomInvite.create({
+        data: {
+          roomId,
+          inviterId: request.user.id,
+          inviteeId: invitee.id
+        },
+        include: {
+          room: true,
+          inviter: {
+            select: { username: true }
+          },
+          invitee: {
+            select: { username: true }
+          }
+        }
+      });
+
+      const payload = toInviteSummary(invite);
+      app.io.emit(SOCKET_EVENTS.inviteReceived, payload);
+
+      return reply.code(201).send({ invite: payload });
+    } catch (error) {
+      return reply.code(400).send({ message: "A pending invite already exists for this user." });
+    }
+  });
+
+  app.get("/users", { preHandler: [app.authenticate] }, async (request) => {
+    const users = await listDiscoverableUsers(request.user.id);
+    return { users };
+  });
+
+  app.get("/rooms/:roomId/members", { preHandler: [app.authenticate] }, async (request) => {
+    const { roomId } = request.params as { roomId: string };
+    await ensureRoomMembership(roomId, request.user.id);
+    const members = await listMembersForRoom(roomId);
+    return {
+      members: members.map((member) => ({
+        id: member.user.id,
+        username: member.user.username,
+        email: member.user.email,
+        role: member.role,
+        joinedAt: member.createdAt.toISOString()
+      }))
+    };
   });
 
   app.get("/invites", { preHandler: [app.authenticate] }, async (request) => {

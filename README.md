@@ -181,6 +181,25 @@ Approved by Edgar
   ```
 - On some Windows machines, the NSIS installer step may fail because Electron Builder extracts a signing helper that needs symlink privileges. In that case, use the unpacked executable or the zipped portable build instead.
 
+### Testing two clients on one Windows machine
+
+- The desktop client supports separate local profiles through a command-line flag:
+  ```text
+  --profile=<name>
+  ```
+- Example:
+  ```text
+  @syncalldesktop.exe --profile=alice
+  @syncalldesktop.exe --profile=bob
+  ```
+- Each profile uses its own local session and binding file, so you can log in as two different users on the same machine and bind two different folders.
+- For a local sync test, create two folders such as:
+  ```text
+  C:\syncall-test\alice
+  C:\syncall-test\bob
+  ```
+- Then run two client windows with different profiles, sign in as different users, join the same room, and bind each client to a different folder.
+
 ## Website
 
 ### Responsibilities

@@ -56,6 +56,43 @@ export async function listInvitesForUser(userId: string) {
   });
 }
 
+export async function listMembersForRoom(roomId: string) {
+  return prisma.roomMembership.findMany({
+    where: { roomId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          email: true
+        }
+      }
+    },
+    orderBy: [
+      { role: "asc" },
+      { createdAt: "asc" }
+    ]
+  });
+}
+
+export async function listDiscoverableUsers(currentUserId: string) {
+  return prisma.user.findMany({
+    where: {
+      id: {
+        not: currentUserId
+      }
+    },
+    select: {
+      id: true,
+      username: true,
+      email: true
+    },
+    orderBy: {
+      username: "asc"
+    }
+  });
+}
+
 export async function ensureRoomMembership(roomId: string, userId: string) {
   const membership = await prisma.roomMembership.findUnique({
     where: {
@@ -72,4 +109,3 @@ export async function ensureRoomMembership(roomId: string, userId: string) {
 
   return membership;
 }
-

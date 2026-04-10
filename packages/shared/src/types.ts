@@ -11,6 +11,20 @@ export interface AuthUser {
   createdAt: string;
 }
 
+export interface UserSummary {
+  id: string;
+  username: string;
+  email: string;
+}
+
+export interface RoomMemberSummary {
+  id: string;
+  username: string;
+  email: string;
+  role: "OWNER" | "MEMBER";
+  joinedAt: string;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;

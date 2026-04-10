@@ -9,7 +9,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 let mainWindow = null;
 
-const stateStore = new StateStore(path.join(app.getPath("userData"), "syncall-state.json"));
+function resolveProfileName() {
+  const profileArgument = process.argv.find((value) => value.startsWith("--profile="));
+  if (!profileArgument) {
+    return "default";
+  }
+
+  const value = profileArgument.slice("--profile=".length).trim();
+  return value || "default";
+}
+
+const profileName = resolveProfileName();
+const stateStore = new StateStore(path.join(app.getPath("userData"), `${profileName}.json`));
 const apiClient = new ApiClient(stateStore);
 const syncManager = new SyncManager({
   store: stateStore,
@@ -25,13 +36,15 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 900,
-    minWidth: 1120,
+    minWidth: 980,
     minHeight: 720,
     backgroundColor: "#0f172a",
+    title: `Syncall Desktop (${profileName})`,
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
 
@@ -50,19 +63,22 @@ function requireSession() {
 
 async function buildDashboard() {
   requireSession();
-  const [rooms, invites, events] = await Promise.all([
+  const [rooms, invites, events, users] = await Promise.all([
     apiClient.listRooms(),
     apiClient.listInvites(),
-    apiClient.listActivity()
+    apiClient.listActivity(),
+    apiClient.listUsers()
   ]);
 
   return {
     rooms: rooms.rooms,
     invites: invites.invites,
     events: events.events,
+    users: users.users,
     bindings: stateStore.getBindings(),
     user: stateStore.getUser(),
-    serverUrl: stateStore.getServerUrl()
+    serverUrl: stateStore.getServerUrl(),
+    profile: profileName
   };
 }
 
@@ -129,6 +145,10 @@ ipcMain.handle("syncall:accept-invite", async (_event, inviteId) => {
   requireSession();
   await apiClient.acceptInvite(inviteId);
   return buildDashboard();
+});
+ipcMain.handle("syncall:list-room-members", async (_event, roomId) => {
+  requireSession();
+  return apiClient.listRoomMembers(roomId);
 });
 ipcMain.handle("syncall:choose-folder", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("syncall", {
   getState: () => ipcRenderer.invoke("syncall:get-state"),
@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("syncall", {
   createRoom: (name) => ipcRenderer.invoke("syncall:create-room", name),
   inviteUser: (roomId, username) => ipcRenderer.invoke("syncall:invite-user", roomId, username),
   acceptInvite: (inviteId) => ipcRenderer.invoke("syncall:accept-invite", inviteId),
+  listRoomMembers: (roomId) => ipcRenderer.invoke("syncall:list-room-members", roomId),
   chooseFolder: () => ipcRenderer.invoke("syncall:choose-folder"),
   bindFolder: (roomId, folderPath) => ipcRenderer.invoke("syncall:bind-folder", roomId, folderPath),
   listHistory: (roomId, relativePath) => ipcRenderer.invoke("syncall:list-history", roomId, relativePath),
