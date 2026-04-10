@@ -170,11 +170,32 @@ export class SyncManager {
       }
     });
 
-    watcher.on("add", (absolutePath) => void this.uploadFromPath(roomId, folderPath, absolutePath));
-    watcher.on("change", (absolutePath) => void this.uploadFromPath(roomId, folderPath, absolutePath));
-    watcher.on("unlink", (absolutePath) => void this.deleteFromPath(roomId, folderPath, absolutePath));
+    watcher.on("add", (absolutePath) => {
+      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
+        this.handleSyncError("upload", roomId, absolutePath, error);
+      });
+    });
+    watcher.on("change", (absolutePath) => {
+      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
+        this.handleSyncError("upload", roomId, absolutePath, error);
+      });
+    });
+    watcher.on("unlink", (absolutePath) => {
+      void this.deleteFromPath(roomId, folderPath, absolutePath).catch((error) => {
+        this.handleSyncError("delete", roomId, absolutePath, error);
+      });
+    });
 
     this.watchers.set(roomId, watcher);
+  }
+
+  handleSyncError(action, roomId, absolutePath, error) {
+    this.notify("sync:error", {
+      action,
+      roomId,
+      path: absolutePath,
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 
   async stopWatcher(roomId) {
@@ -299,4 +320,3 @@ export class SyncManager {
     }
   }
 }
-

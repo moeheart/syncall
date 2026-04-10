@@ -15,10 +15,13 @@ export class ApiClient {
   }
 
   async request(path, init = {}) {
+    const hasJsonBody = typeof init.body === "string";
+    const isFormBody = init.body instanceof FormData;
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
-        ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(hasJsonBody && !isFormBody ? { "Content-Type": "application/json" } : {}),
         ...this.headers,
         ...(init.headers ?? {})
       }
