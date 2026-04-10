@@ -11,7 +11,10 @@
     "dev": "npm run dev --workspace @syncall/server",
     "dev:server": "npm run dev --workspace @syncall/server",
     "dev:web": "npm run dev --workspace @syncall/web",
-    "dev:desktop": "npm run dev --workspace @syncall/desktop",
+    "dev:desktop": "npm run dev --workspace @syncall/desktop --",
+    "dev:desktop:host": "npm run dev:host --workspace @syncall/desktop",
+    "dev:desktop:client": "npm run dev:client --workspace @syncall/desktop --",
+    "dev:desktop:dual": "npm run dev:dual --workspace @syncall/desktop",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -22,4 +25,3 @@
     "node": ">=24"
   }
 }
-

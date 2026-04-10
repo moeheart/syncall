@@ -1,6 +1,6 @@
-import { Blob } from "node:buffer";
+const { Blob } = require("node:buffer");
 
-export class ApiClient {
+class ApiClient {
   constructor(store) {
     this.store = store;
   }
@@ -17,17 +17,29 @@ export class ApiClient {
   async request(path, init = {}) {
     const hasJsonBody = typeof init.body === "string";
     const isFormBody = init.body instanceof FormData;
+    const url = `${this.baseUrl}${path}`;
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        ...(hasJsonBody && !isFormBody ? { "Content-Type": "application/json" } : {}),
-        ...this.headers,
-        ...(init.headers ?? {})
-      }
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        headers: {
+          ...(hasJsonBody && !isFormBody ? { "Content-Type": "application/json" } : {}),
+          ...this.headers,
+          ...(init.headers ?? {})
+        }
+      });
+    } catch (error) {
+      const reason = error?.cause?.code === "UND_ERR_CONNECT_TIMEOUT"
+        ? "Connection timed out"
+        : "Network request failed";
+      throw new Error(`${reason} for ${url}. Check that the server URL is correct and the backend is reachable.`);
+    }
 
     if (!response.ok) {
+      if (response.status === 413) {
+        throw new Error("Upload rejected: the file is larger than the server allows. Increase the server upload limit or choose a smaller file.");
+      }
       const payload = await response.json().catch(() => ({ message: response.statusText }));
       throw new Error(payload.message ?? "Request failed.");
     }
@@ -139,3 +151,5 @@ export class ApiClient {
     });
   }
 }
+
+module.exports = { ApiClient };

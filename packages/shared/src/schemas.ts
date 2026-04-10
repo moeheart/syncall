@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_UPLOAD_BYTES } from "./constants";
+import { MAX_COMPRESSED_UPLOAD_BYTES, MAX_ORIGINAL_FILE_BYTES } from "./constants";
 
 export const credentialsSchema = z.object({
   email: z.string().email(),
@@ -36,8 +36,8 @@ export const uploadMetadataSchema = z.object({
   roomId: z.string().cuid(),
   relativePath: z.string().min(1),
   checksum: z.string().length(64),
-  originalSize: z.coerce.number().int().min(0).max(MAX_UPLOAD_BYTES),
-  compressedSize: z.coerce.number().int().min(0).max(MAX_UPLOAD_BYTES),
+  originalSize: z.coerce.number().int().min(0).max(MAX_ORIGINAL_FILE_BYTES),
+  compressedSize: z.coerce.number().int().min(0).max(MAX_COMPRESSED_UPLOAD_BYTES),
   baseVersionId: z.string().cuid().optional().nullable()
 });
 

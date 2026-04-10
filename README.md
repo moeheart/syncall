@@ -144,9 +144,9 @@ Approved by Edgar
 
 ### Main client files
 
-- `apps/desktop/src/electron/main.mjs`: Electron window and IPC entrypoint
-- `apps/desktop/src/electron/services/api-client.mjs`: desktop-to-server API calls
-- `apps/desktop/src/electron/services/sync-manager.mjs`: folder watching and sync loop
+- `apps/desktop/src/electron/main.cjs`: Electron window and IPC entrypoint
+- `apps/desktop/src/electron/services/api-client.cjs`: desktop-to-server API calls
+- `apps/desktop/src/electron/services/sync-manager.cjs`: folder watching and sync loop
 - `apps/desktop/src/renderer/App.vue`: desktop UI
 
 ### Client prerequisites
@@ -156,9 +156,21 @@ Approved by Edgar
 
 ### Client development
 
-- Start the desktop client in dev mode:
+- Start one desktop client in dev mode:
   ```bash
   npm run dev:desktop
+  ```
+- Start only the shared Vite host for the desktop UI:
+  ```bash
+  npm run dev:desktop:host
+  ```
+- Start an additional desktop client that reuses the existing host:
+  ```bash
+  npm run dev:desktop:client -- --profile=alice
+  ```
+- Start two desktop clients on the same machine for local sync testing:
+  ```bash
+  npm run dev:desktop:dual
   ```
 
 ### Client packaging
@@ -188,9 +200,13 @@ Approved by Edgar
   --profile=<name>
   ```
 - Example:
-  ```text
-  @syncalldesktop.exe --profile=alice
-  @syncalldesktop.exe --profile=bob
+  ```bash
+  npm run dev:desktop:client -- --profile=alice
+  npm run dev:desktop:client -- --profile=bob
+  ```
+- Or launch both at once:
+  ```bash
+  npm run dev:desktop:dual
   ```
 - Each profile uses its own local session and binding file, so you can log in as two different users on the same machine and bind two different folders.
 - For a local sync test, create two folders such as:
@@ -199,6 +215,7 @@ Approved by Edgar
   C:\syncall-test\bob
   ```
 - Then run two client windows with different profiles, sign in as different users, join the same room, and bind each client to a different folder.
+- The `dev:desktop` command now reuses an already running desktop dev server on port `5173`, so opening another client no longer fails just because the first client already started the UI host.
 
 ## Website
 

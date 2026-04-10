@@ -1,11 +1,9 @@
-import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { fileURLToPath } from "node:url";
-import { StateStore } from "./services/state-store.mjs";
-import { ApiClient } from "./services/api-client.mjs";
-import { SyncManager } from "./services/sync-manager.mjs";
+const path = require("node:path");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { StateStore } = require("./services/state-store.cjs");
+const { ApiClient } = require("./services/api-client.cjs");
+const { SyncManager } = require("./services/sync-manager.cjs");
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 let mainWindow = null;
 
@@ -20,7 +18,24 @@ function resolveProfileName() {
 }
 
 const profileName = resolveProfileName();
-const stateStore = new StateStore(path.join(app.getPath("userData"), `${profileName}.json`));
+const appDataRoot = app.getPath("appData");
+const profileDataRoot = path.join(appDataRoot, "Syncall Desktop", "profiles", profileName);
+
+app.setPath("userData", profileDataRoot);
+app.setPath("sessionData", path.join(profileDataRoot, "session"));
+
+const stateStore = new StateStore(path.join(app.getPath("userData"), "state.json"), {
+  fallbackPaths: [
+    path.join(appDataRoot, "Electron", `${profileName}.json`),
+    path.join(appDataRoot, "@syncall", "desktop", `${profileName}.json`),
+    ...(profileName === "default"
+      ? [
+          path.join(appDataRoot, "Electron", "syncall-state.json"),
+          path.join(appDataRoot, "@syncall", "desktop", "syncall-state.json")
+        ]
+      : [])
+  ]
+});
 const apiClient = new ApiClient(stateStore);
 const syncManager = new SyncManager({
   store: stateStore,
@@ -49,7 +64,7 @@ async function createWindow() {
   });
 
   if (isDev) {
-    await mainWindow.loadURL("http://localhost:5173");
+    await mainWindow.loadURL(process.env.SYNCALL_DESKTOP_DEV_URL ?? "http://localhost:5173");
   } else {
     await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
   }

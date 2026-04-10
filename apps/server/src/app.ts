@@ -10,7 +10,10 @@ import fileRoutes from "./routes/file-routes";
 import { config } from "./config";
 
 export async function buildApp() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+    bodyLimit: config.maxUploadBodyBytes
+  });
 
   await app.register(fastifyCors, {
     origin: true,
@@ -18,7 +21,7 @@ export async function buildApp() {
   });
   await app.register(fastifyMultipart, {
     limits: {
-      fileSize: 100 * 1024 * 1024
+      fileSize: config.maxUploadBodyBytes
     }
   });
   await app.register(authPlugin);

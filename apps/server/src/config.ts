@@ -11,6 +11,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "syncall-dev-secret",
   storageDir: process.env.STORAGE_DIR ?? path.join(rootDir, "storage"),
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5174",
-  databaseUrl: process.env.DATABASE_URL ?? ""
+  databaseUrl: process.env.DATABASE_URL ?? "",
+  maxOriginalFileBytes: Number(process.env.MAX_ORIGINAL_FILE_BYTES ?? 200 * 1024 * 1024),
+  maxUploadBodyBytes: Number(process.env.MAX_UPLOAD_BODY_BYTES ?? 240 * 1024 * 1024)
 };
-

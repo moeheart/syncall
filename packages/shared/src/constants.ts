@@ -10,11 +10,11 @@ export const SOCKET_EVENTS = {
 } as const;
 
 export const COMPRESSION_ALGORITHM = "gzip";
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+export const MAX_ORIGINAL_FILE_BYTES = 200 * 1024 * 1024;
+export const MAX_COMPRESSED_UPLOAD_BYTES = 240 * 1024 * 1024;
 export const IGNORED_FILE_PATTERNS = [
   /^\.syncall(\/|\\|$)/,
   /\.tmp$/i,
   /\.swp$/i,
   /~$/
 ] as const;
-

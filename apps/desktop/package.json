@@ -5,10 +5,13 @@
   "description": "Syncall desktop client",
   "author": "Syncall Team",
   "type": "module",
-  "main": "src/electron/main.mjs",
+  "main": "src/electron/main.cjs",
   "scripts": {
     "build": "vite build",
-    "dev": "concurrently -k \"vite --port 5173\" \"wait-on tcp:5173 && electron src/electron/main.mjs\"",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-desktop-dev.ps1",
+    "dev:host": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:client": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-electron-dev.ps1",
+    "dev:dual": "concurrently -k \"npm run dev:host\" \"wait-on tcp:5173 && powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-electron-dev.ps1 --profile=alice\" \"wait-on tcp:5173 && powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-electron-dev.ps1 --profile=bob\"",
     "package:dir": "npm run build && electron-builder --win dir",
     "package:win": "npm run build && electron-builder --win nsis",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -37,6 +40,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.3",
     "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
     "electron": "35.1.4",
     "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",

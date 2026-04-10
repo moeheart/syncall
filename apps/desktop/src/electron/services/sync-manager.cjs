@@ -1,11 +1,12 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { createHash } from "node:crypto";
-import { gzipSync } from "node:zlib";
-import chokidar from "chokidar";
-import { io } from "socket.io-client";
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { createHash } = require("node:crypto");
+const { gzipSync } = require("node:zlib");
+const chokidar = require("chokidar");
+const { io } = require("socket.io-client");
 
 const IGNORED_PATTERNS = [/^\.syncall(\/|\\|$)/, /\.tmp$/i, /\.swp$/i, /~$/];
+const MAX_ORIGINAL_FILE_BYTES = 200 * 1024 * 1024;
 
 function normalizeRelativePath(input) {
   return input.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -32,7 +33,7 @@ async function walkFiles(rootDir) {
   return results;
 }
 
-export class SyncManager {
+class SyncManager {
   constructor({ store, apiClient, notify }) {
     this.store = store;
     this.apiClient = apiClient;
@@ -213,6 +214,12 @@ export class SyncManager {
     }
 
     const fileBytes = await fs.readFile(absolutePath);
+    if (fileBytes.byteLength > MAX_ORIGINAL_FILE_BYTES) {
+      throw new Error(
+        `File exceeds the 200 MB upload limit: ${relativePath} (${fileBytes.byteLength} bytes).`
+      );
+    }
+
     const compressedBytes = gzipSync(fileBytes);
     const checksum = createHash("sha256").update(fileBytes).digest("hex");
     const baseVersionId = this.store.getVersionHead(roomId, relativePath);
@@ -313,10 +320,16 @@ export class SyncManager {
       const serverFile = serverMap.get(relativePath);
 
       if (!serverFile || serverFile.checksum !== checksum) {
-        await this.uploadFromPath(roomId, binding.folderPath, absolutePath);
+        try {
+          await this.uploadFromPath(roomId, binding.folderPath, absolutePath);
+        } catch (error) {
+          this.handleSyncError("upload", roomId, absolutePath, error);
+        }
       } else {
         await this.store.setVersionHead(roomId, relativePath, serverFile.currentVersionId);
       }
     }
   }
 }
+
+module.exports = { SyncManager };

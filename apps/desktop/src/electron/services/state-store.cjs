@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const DEFAULT_STATE = {
   serverUrl: "http://localhost:4000",
@@ -9,25 +9,71 @@ const DEFAULT_STATE = {
   versionHeads: {}
 };
 
-export class StateStore {
-  constructor(filePath) {
+function normalizeServerUrl(serverUrl) {
+  const trimmed = String(serverUrl ?? "").trim();
+  if (!trimmed) {
+    return DEFAULT_STATE.serverUrl;
+  }
+
+  return trimmed.replace(/\/+$/, "");
+}
+
+class StateStore {
+  constructor(filePath, options = {}) {
     this.filePath = filePath;
+    this.fallbackPaths = Array.isArray(options.fallbackPaths) ? options.fallbackPaths : [];
     this.state = structuredClone(DEFAULT_STATE);
   }
 
+  async readFirstAvailableStateFile() {
+    const candidates = [this.filePath, ...this.fallbackPaths];
+
+    for (const candidate of candidates) {
+      try {
+        const content = await fs.readFile(candidate, "utf8");
+        return {
+          content,
+          sourcePath: candidate
+        };
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+
+    return null;
+  }
+
   async load() {
+    const loaded = await this.readFirstAvailableStateFile();
+
     try {
-      const content = await fs.readFile(this.filePath, "utf8");
+      if (!loaded) {
+        await this.save();
+        return this.getState();
+      }
+
       this.state = {
         ...structuredClone(DEFAULT_STATE),
-        ...JSON.parse(content)
+        ...JSON.parse(loaded.content)
       };
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        throw error;
+      this.state.serverUrl = normalizeServerUrl(this.state.serverUrl);
+
+      if (loaded.sourcePath !== this.filePath) {
+        await this.save();
       }
-      await this.save();
+
+      return this.getState();
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        this.state = structuredClone(DEFAULT_STATE);
+        await this.save();
+        return this.getState();
+      }
+      throw error;
     }
+
     return this.getState();
   }
 
@@ -41,7 +87,7 @@ export class StateStore {
   }
 
   async setServerUrl(serverUrl) {
-    this.state.serverUrl = serverUrl;
+    this.state.serverUrl = normalizeServerUrl(serverUrl);
     await this.save();
   }
 
@@ -49,7 +95,7 @@ export class StateStore {
     this.state.token = token;
     this.state.user = user;
     if (serverUrl) {
-      this.state.serverUrl = serverUrl;
+      this.state.serverUrl = normalizeServerUrl(serverUrl);
     }
     await this.save();
   }
@@ -109,3 +155,5 @@ export class StateStore {
     return path.basename(this.filePath, path.extname(this.filePath));
   }
 }
+
+module.exports = { StateStore };
