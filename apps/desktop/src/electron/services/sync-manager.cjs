@@ -100,23 +100,35 @@ class SyncManager {
     });
 
     this.socket.on("connect", async () => {
-      for (const roomId of Object.keys(this.store.getBindings())) {
-        this.socket.emit("room:join", roomId);
-        await this.resyncRoom(roomId);
-      }
-      this.notify("socket:connected", { connected: true });
+      void (async () => {
+        try {
+          for (const roomId of Object.keys(this.store.getBindings())) {
+            this.socket.emit("room:join", roomId);
+            await this.resyncRoom(roomId);
+          }
+          this.notify("socket:connected", { connected: true });
+        } catch (error) {
+          this.handleSyncError("connect", "socket", this.store.getServerUrl(), error);
+        }
+      })();
     });
 
-    this.socket.on("sync:file-updated", async (payload) => {
-      await this.applyRemoteUpdate(payload);
+    this.socket.on("sync:file-updated", (payload) => {
+      void this.applyRemoteUpdate(payload).catch((error) => {
+        this.handleSyncError("download", payload.roomId, payload.relativePath, error);
+      });
     });
 
-    this.socket.on("sync:restore-completed", async (payload) => {
-      await this.applyRemoteUpdate(payload);
+    this.socket.on("sync:restore-completed", (payload) => {
+      void this.applyRemoteUpdate(payload).catch((error) => {
+        this.handleSyncError("restore-download", payload.roomId, payload.relativePath, error);
+      });
     });
 
-    this.socket.on("sync:file-deleted", async (payload) => {
-      await this.applyRemoteDelete(payload);
+    this.socket.on("sync:file-deleted", (payload) => {
+      void this.applyRemoteDelete(payload).catch((error) => {
+        this.handleSyncError("remote-delete", payload.roomId, payload.relativePath, error);
+      });
     });
 
     this.socket.on("invite:received", (payload) => {

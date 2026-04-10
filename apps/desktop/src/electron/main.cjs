@@ -8,13 +8,24 @@ const isDev = !app.isPackaged;
 let mainWindow = null;
 
 function resolveProfileName() {
-  const profileArgument = process.argv.find((value) => value.startsWith("--profile="));
-  if (!profileArgument) {
-    return "default";
+  const envProfile = process.env.SYNCALL_PROFILE?.trim();
+  if (envProfile) {
+    return envProfile;
   }
 
-  const value = profileArgument.slice("--profile=".length).trim();
-  return value || "default";
+  const profileArgument = process.argv.find((value) => value.startsWith("--profile="));
+  if (profileArgument) {
+    const value = profileArgument.slice("--profile=".length).trim();
+    return value || "default";
+  }
+
+  const profileIndex = process.argv.findIndex((value) => value === "--profile");
+  if (profileIndex >= 0) {
+    const value = process.argv[profileIndex + 1]?.trim();
+    return value || "default";
+  }
+
+  return "default";
 }
 
 const profileName = resolveProfileName();

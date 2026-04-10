@@ -165,7 +165,6 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
 
     return reply
       .header("Content-Type", "application/octet-stream")
-      .header("Content-Disposition", `attachment; filename="${version.fileEntry.relativePath.split("/").pop() ?? "file"}"`)
       .send(content);
   });
 };
