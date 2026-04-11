@@ -82,6 +82,7 @@ const bridgeReady = computed(() => typeof window !== "undefined" && typeof windo
 const isAuthenticated = computed(() => Boolean(state.value.token && state.value.user));
 const selectedRoom = computed(() => rooms.value.find((room) => room.id === selectedRoomId.value) ?? null);
 const selectedRoomState = computed(() => roomStates.value.find((roomState) => roomState.roomId === selectedRoomId.value) ?? null);
+const selectedRoomHasBinding = computed(() => Boolean(selectedRoomState.value?.folderPath));
 const filteredUsers = computed(() => {
   const query = userSearch.value.trim().toLowerCase();
   const memberUsernames = new Set(members.value.map((member) => member.username));
@@ -118,7 +119,7 @@ async function loadMembers(roomId: string) {
 }
 
 async function loadRoomFiles(roomId: string) {
-  if (!bridgeReady.value || !roomId) {
+  if (!bridgeReady.value || !roomId || !selectedRoomHasBinding.value) {
     roomFiles.value = [];
     return;
   }
@@ -290,7 +291,7 @@ async function logout() {
 }
 
 function formatBytes(size: number | null) {
-  if (size == null) return "—";
+  if (size == null) return "--";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -298,7 +299,7 @@ function formatBytes(size: number | null) {
 }
 
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "—";
+  return value ? new Date(value).toLocaleString() : "--";
 }
 
 function statusTone(status: FileStatus) {
@@ -351,8 +352,36 @@ onMounted(async () => {
   }
   window.syncall.onEvent(({ type, payload }) => {
     notices.value = [`${type}: ${JSON.stringify(payload)}`, ...notices.value].slice(0, 40);
-    if (isAuthenticated.value) {
+    if (!isAuthenticated.value) {
+      return;
+    }
+
+    if (type === "invite:received") {
       void refreshDashboard();
+      return;
+    }
+
+    if (type === "presence:update") {
+      const roomId = (payload as { roomId?: string } | null)?.roomId;
+      if (roomId && roomId === selectedRoomId.value) {
+        void loadMembers(roomId);
+      }
+      return;
+    }
+
+    if (["sync:uploaded", "sync:downloaded", "sync:deleted", "sync:remote-delete", "sync:restore-completed", "sync:status-changed"].includes(type)) {
+      const roomId = (payload as { roomId?: string } | null)?.roomId;
+      if (roomId && roomId === selectedRoomId.value && selectedRoomHasBinding.value) {
+        void loadRoomFiles(roomId);
+      }
+      return;
+    }
+
+    if (["sync:error", "socket:connected", "socket:disconnected"].includes(type)) {
+      notifications.value = {
+        ...notifications.value,
+        noticesUnread: notifications.value.noticesUnread + 1
+      };
     }
   });
 });
@@ -513,7 +542,7 @@ onMounted(async () => {
                   <td><div class="file-name"><strong>{{ file.displayName }}</strong><small>{{ file.relativePath }}</small></div></td>
                   <td>{{ formatBytes(file.localSize ?? file.remoteSize) }}</td>
                   <td>{{ formatDate(file.localModifiedAt ?? file.remoteModifiedAt) }}</td>
-                  <td>{{ file.ownerUsername ?? "—" }}</td>
+                  <td>{{ file.ownerUsername ?? "--" }}</td>
                   <td><span class="pill" :data-tone="statusTone(file.status)">{{ file.status }}</span></td>
                   <td>
                     <button v-if="fileActionLabel(file.status)" class="secondary small" @click="runPrimaryFileAction(file)">{{ fileActionLabel(file.status) }}</button>
@@ -571,7 +600,7 @@ onMounted(async () => {
         <ul v-else-if="activeDrawer === 'activity'" class="drawer-list">
           <li v-for="event in events" :key="event.id">
             <div><strong>{{ event.type }}</strong><small>{{ event.relativePath }}</small></div>
-            <span class="muted">{{ event.actorUsername }} · {{ formatDate(event.createdAt) }}</span>
+            <span class="muted">{{ event.actorUsername }} | {{ formatDate(event.createdAt) }}</span>
           </li>
           <li v-if="events.length === 0" class="muted">No room activity yet.</li>
         </ul>
@@ -585,8 +614,8 @@ onMounted(async () => {
           <p class="muted">{{ selectedHistoryPath || "Choose a file from the table to inspect history." }}</p>
           <ul class="drawer-list">
             <li v-for="version in historyVersions" :key="version.id">
-              <div><strong>#{{ version.versionNumber }}</strong><small>{{ formatDate(version.createdAt) }} · {{ version.uploaderUsername }}</small></div>
-              <div class="between"><span>{{ formatBytes(version.originalSize) }} → {{ formatBytes(version.compressedSize) }}</span><button class="secondary small" @click="restoreVersion(version.id)">Restore</button></div>
+              <div><strong>#{{ version.versionNumber }}</strong><small>{{ formatDate(version.createdAt) }} | {{ version.uploaderUsername }}</small></div>
+              <div class="between"><span>{{ formatBytes(version.originalSize) }} -> {{ formatBytes(version.compressedSize) }}</span><button class="secondary small" @click="restoreVersion(version.id)">Restore</button></div>
             </li>
             <li v-if="historyVersions.length === 0" class="muted">No version history loaded yet.</li>
           </ul>
@@ -599,23 +628,30 @@ onMounted(async () => {
 <style scoped>
 :global(body) { margin: 0; font-family: "Segoe UI", sans-serif; background: linear-gradient(180deg, #08111d, #10233c); color: #e5edf7; }
 :global(*) { box-sizing: border-box; }
-.shell { display: grid; grid-template-columns: minmax(300px, 350px) minmax(0, 1fr); gap: 24px; min-height: 100vh; padding: 24px; }
+.shell { display: grid; grid-template-columns: minmax(300px, 350px) minmax(0, 1fr); gap: 24px; min-height: 100vh; padding: 24px; align-items: start; }
 .rail, .workspace, .stack { display: grid; gap: 18px; align-content: start; min-width: 0; }
-.card, .drawer { border: 1px solid rgba(148,163,184,.16); background: rgba(10,18,30,.88); box-shadow: 0 24px 70px rgba(2,6,23,.35); }
-.card { border-radius: 24px; padding: 20px; }
+.workspace > *, .rail > * { min-width: 0; }
+.card, .drawer { border: 1px solid rgba(148,163,184,.16); background: rgba(10,18,30,.88); box-shadow: 0 24px 70px rgba(2,6,23,.35); min-width: 0; }
+.card { border-radius: 24px; padding: 20px; overflow: hidden; }
 .hero { background: radial-gradient(circle at top left, rgba(34,197,94,.18), transparent 38%), rgba(10,18,30,.88); }
 .between, .inline, .segmented, .stats, .members { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .between { justify-content: space-between; }
+.between > *, .inline > * { min-width: 0; }
 .eyebrow { margin: 0 0 8px; color: #86efac; text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; }
+h1, h2, h3, p { margin-top: 0; }
+h1, h2, h3, p, strong, small, span { overflow-wrap: anywhere; }
 .muted, small { color: rgba(229,237,247,.7); }
 .chip, .pill, .bubble { border-radius: 999px; white-space: nowrap; }
-.chip, .pill { padding: 6px 10px; background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.18); }
+.chip, .pill { padding: 6px 10px; background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.18); max-width: 100%; }
+.pill { white-space: normal; }
 .pill[data-tone="success"] { background: rgba(22,101,52,.35); color: #bbf7d0; }
 .pill[data-tone="warning"] { background: rgba(120,53,15,.35); color: #fde68a; }
 .pill[data-tone="danger"] { background: rgba(127,29,29,.35); color: #fecaca; }
 .bubble { min-width: 24px; padding: 4px 8px; text-align: center; font-size: .78rem; font-weight: 700; background: #fb7185; color: white; }
 input, button { border: none; border-radius: 14px; font: inherit; }
 input { width: 100%; padding: 12px 14px; background: rgba(15,23,42,.92); color: inherit; }
+.inline input { flex: 1 1 220px; min-width: 0; }
+.inline button { flex: 0 0 auto; }
 button { cursor: pointer; color: white; transition: transform .12s ease, opacity .12s ease; }
 button:hover { transform: translateY(-1px); }
 button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
@@ -631,11 +667,14 @@ button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 .room-list li.active { border-color: rgba(134,239,172,.45); background: rgba(20,42,28,.5); }
 .member { padding: 12px 14px; display: flex; gap: 12px; justify-content: space-between; min-width: 210px; }
 .room-panel { display: grid; gap: 18px; }
+.room-panel .between:first-child { align-items: flex-start; }
+.stats, .members { align-items: stretch; }
 .table-wrap { overflow: auto; border-radius: 20px; border: 1px solid rgba(71,85,105,.28); }
 .files { width: 100%; min-width: 860px; border-collapse: collapse; }
 .files thead { background: rgba(15,23,42,.94); }
 .files th, .files td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(71,85,105,.22); vertical-align: middle; }
 .file-name { display: grid; gap: 4px; }
+.files th, .files td, .room-list li, .drawer-list li, .member { overflow-wrap: anywhere; }
 .empty { padding: 22px; text-align: center; color: rgba(229,237,247,.74); }
 .empty-row { text-align: center; color: rgba(229,237,247,.64); }
 .error { margin: 0; padding: 14px 16px; border-radius: 18px; background: rgba(127,29,29,.45); color: #fecaca; border: 1px solid rgba(248,113,113,.35); }

@@ -386,6 +386,7 @@ class SyncManager {
     const previousRooms = new Set(this.store.getJoinedRooms());
     const nextRooms = [...new Set(roomIds.filter(Boolean))];
     const nextRoomSet = new Set(nextRooms);
+    const addedRooms = nextRooms.filter((roomId) => !previousRooms.has(roomId));
 
     await this.store.setJoinedRooms(nextRooms);
 
@@ -399,7 +400,7 @@ class SyncManager {
     }
 
     if (this.socket && !this.isShuttingDown) {
-      for (const roomId of nextRooms) {
+      for (const roomId of addedRooms) {
         this.socket.emit("room:join", {
           roomId,
           syncState: this.getLocalMemberSyncState(roomId)
@@ -407,7 +408,7 @@ class SyncManager {
       }
     }
 
-    for (const roomId of nextRooms) {
+    for (const roomId of addedRooms) {
       if (this.store.getBinding(roomId)) {
         await this.refreshRoomStatus(roomId);
       }
