@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:upgrade-client-modified-at": "tsx scripts/upgrade-client-modified-at.ts",
     "reset:sync-data": "tsx scripts/reset-sync-data.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"

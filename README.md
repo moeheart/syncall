@@ -122,6 +122,11 @@ Approved by Edgar
   ```
 - This deletes file metadata, file versions, sync activity, client folder bindings, and all stored blobs under `STORAGE_DIR`.
 - The reset command now verifies that `FileEntry`, `FileVersion`, `SyncEvent`, and `ClientFolderBinding` all end at zero rows after cleanup.
+- If the server code has been updated and Prisma reports that `clientModifiedAt` is unknown, upgrade the existing database column and regenerate Prisma:
+  ```bash
+  npm run prisma:upgrade-client-modified-at --workspace @syncall/server
+  npm run prisma:generate --workspace @syncall/server
+  ```
 
 ### Local desktop cleanup
 
