@@ -30,7 +30,9 @@ export async function buildApp() {
   app.get("/health", async () => ({
     status: "ok",
     compression: "gzip",
-    origin: config.corsOrigin
+    origin: config.corsOrigin,
+    serverVersion: config.serverVersion,
+    minimumCompatibleClientVersion: config.minimumCompatibleClientVersion
   }));
 
   await app.register(authRoutes, { prefix: "/auth" });

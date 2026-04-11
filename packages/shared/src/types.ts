@@ -14,6 +14,17 @@ export interface AuthUser {
   createdAt: string;
 }
 
+export interface CompatibilitySummary {
+  serverVersion: string;
+  minimumCompatibleClientVersion: string;
+}
+
+export interface CompatibilityErrorPayload extends CompatibilitySummary {
+  code: "CLIENT_VERSION_UNSUPPORTED";
+  clientVersion: string | null;
+  message: string;
+}
+
 export interface UserSummary {
   id: string;
   username: string;

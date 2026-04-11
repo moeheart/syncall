@@ -1,9 +1,22 @@
 import type { FastifyPluginAsync } from "fastify";
 import { loginSchema, registerSchema } from "@syncall/shared";
 import { loginUser, registerUser } from "../services/auth-service";
+import {
+  buildCompatibilityErrorPayload,
+  getCompatibilitySummary,
+  isClientEditionCompatible,
+  readClientEdition
+} from "../utils/client-compatibility";
 
 const authRoutes: FastifyPluginAsync = async (app) => {
+  app.get("/compatibility", async () => getCompatibilitySummary());
+
   app.post("/register", async (request, reply) => {
+    const clientVersion = readClientEdition(request.headers["x-syncall-client-version"]);
+    if (!isClientEditionCompatible(clientVersion)) {
+      return reply.code(426).send(buildCompatibilityErrorPayload(clientVersion));
+    }
+
     const body = registerSchema.parse(request.body);
 
     try {
@@ -23,6 +36,11 @@ const authRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/login", async (request, reply) => {
+    const clientVersion = readClientEdition(request.headers["x-syncall-client-version"]);
+    if (!isClientEditionCompatible(clientVersion)) {
+      return reply.code(426).send(buildCompatibilityErrorPayload(clientVersion));
+    }
+
     const body = loginSchema.parse(request.body);
 
     try {
@@ -49,4 +67,3 @@ const authRoutes: FastifyPluginAsync = async (app) => {
 };
 
 export default authRoutes;
-

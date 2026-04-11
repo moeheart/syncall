@@ -1,8 +1,10 @@
 const { Blob } = require("node:buffer");
 
 class ApiClient {
-  constructor(store) {
+  constructor(store, options = {}) {
     this.store = store;
+    this.clientVersion = options.clientVersion ?? "1.0.0";
+    this.clientName = options.clientName ?? "desktop";
   }
 
   get baseUrl() {
@@ -11,7 +13,11 @@ class ApiClient {
 
   get headers() {
     const token = this.store.getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return {
+      "X-Syncall-Client-Version": this.clientVersion,
+      "X-Syncall-Client-Name": this.clientName,
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
   }
 
   async request(path, init = {}) {
@@ -41,6 +47,11 @@ class ApiClient {
         throw new Error("Upload rejected: the file is larger than the server allows. Increase the server upload limit or choose a smaller file.");
       }
       const payload = await response.json().catch(() => ({ message: response.statusText }));
+      if (payload.code === "CLIENT_VERSION_UNSUPPORTED") {
+        throw new Error(
+          `${payload.message} Server edition: ${payload.serverVersion}. Minimum supported client edition: ${payload.minimumCompatibleClientVersion}.`
+        );
+      }
       throw new Error(payload.message ?? "Request failed.");
     }
 
@@ -64,6 +75,10 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify(payload)
     });
+  }
+
+  getCompatibility() {
+    return this.request("/auth/compatibility");
   }
 
   listRooms() {

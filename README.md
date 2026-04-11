@@ -59,6 +59,19 @@ Approved by Edgar
 
 ## Development Setup
 
+### Edition rule
+
+- The current release edition is `1.0.0`.
+- Edition digits mean:
+  `major.minor.patch`
+  Major = big features, Minor = small features, Patch = bug fixes.
+- After each script or code change, increase the appropriate edition number before release.
+- Desktop profiles created by editions newer than `0.1.0` store their edition number locally.
+- When a newer edition starts and the saved profile edition does not match, Syncall clears that profile's cached local session, bindings, version heads, room cache, and notification state before continuing.
+- The server now enforces a minimum compatible client edition.
+  The current minimum compatible edition is `1.0.0`.
+  Clients at `0.1.0` or older are rejected at login/register and must be upgraded.
+
 ### Workspace layout
 
 - `apps/server`: Fastify + Socket.IO + Prisma backend
@@ -181,6 +194,10 @@ Approved by Edgar
 
 ### Client development
 
+- The desktop client now defaults to:
+  ```text
+  http://syncall.moeheart.cn
+  ```
 - Start one desktop client in dev mode:
   ```bash
   npm run dev:desktop

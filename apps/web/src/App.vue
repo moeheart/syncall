@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import type { InviteSummary, RoomSummary, SyncEventSummary } from "@syncall/shared";
+import type { CompatibilitySummary, InviteSummary, RoomSummary, SyncEventSummary } from "@syncall/shared";
 
-const apiBaseUrl = ref("http://localhost:4000");
+const apiBaseUrl = ref("http://syncall.moeheart.cn");
+const clientVersion = "1.0.0";
 const token = ref(localStorage.getItem("syncall-web-token") ?? "");
 const email = ref("");
 const password = ref("");
 const errorMessage = ref("");
 const loading = ref(false);
+const compatibility = ref<CompatibilitySummary | null>(null);
 const rooms = ref<RoomSummary[]>([]);
 const invites = ref<InviteSummary[]>([]);
 const events = ref<SyncEventSummary[]>([]);
@@ -19,6 +21,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      "X-Syncall-Client-Version": clientVersion,
+      "X-Syncall-Client-Name": "web",
       ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}),
       ...(init?.headers ?? {})
     }
@@ -26,6 +30,11 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ message: response.statusText }));
+    if ((payload as { code?: string }).code === "CLIENT_VERSION_UNSUPPORTED") {
+      throw new Error(
+        `${(payload as { message: string }).message} Minimum supported client edition: ${(payload as { minimumCompatibleClientVersion: string }).minimumCompatibleClientVersion}.`
+      );
+    }
     throw new Error(payload.message ?? "Request failed.");
   }
 
@@ -70,6 +79,10 @@ async function refreshDashboard() {
   events.value = activityPayload.events;
 }
 
+async function loadCompatibility() {
+  compatibility.value = await fetchJson<CompatibilitySummary>("/auth/compatibility");
+}
+
 function logout() {
   token.value = "";
   rooms.value = [];
@@ -79,6 +92,12 @@ function logout() {
 }
 
 onMounted(async () => {
+  try {
+    await loadCompatibility();
+  } catch {
+    compatibility.value = null;
+  }
+
   if (token.value) {
     try {
       await refreshDashboard();
@@ -126,6 +145,7 @@ onMounted(async () => {
           This lightweight surface is for project overview and status checks. The Electron client remains
           the main product experience.
         </p>
+        <p class="muted">Web edition {{ clientVersion }}<span v-if="compatibility"> | server requires {{ compatibility.minimumCompatibleClientVersion }}+</span></p>
         <form v-if="!isAuthenticated" class="login-form" @submit.prevent="login">
           <label>
             API base URL

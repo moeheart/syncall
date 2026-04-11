@@ -1,55 +1,80 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const DEFAULT_STATE = {
-  serverUrl: "http://localhost:4000",
-  token: "",
-  user: null,
-  bindings: {},
-  versionHeads: {},
-  joinedRooms: [],
-  roomSyncModes: {},
-  roomStatusCache: {},
-  panelReadAt: {
-    invites: null,
-    activity: null
-  },
-  noticeUnreadCount: 0
-};
+const DEFAULT_SERVER_URL = "http://syncall.moeheart.cn";
+const PROFILE_CLEANUP_BASELINE_VERSION = "0.1.0";
 
-function normalizeServerUrl(serverUrl) {
+function compareVersions(left, right) {
+  const leftParts = String(left ?? "0.0.0").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = String(right ?? "0.0.0").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = leftParts[index] ?? 0;
+    const rightValue = rightParts[index] ?? 0;
+    if (leftValue !== rightValue) {
+      return leftValue - rightValue;
+    }
+  }
+
+  return 0;
+}
+
+function createDefaultState({ appVersion, profileName }) {
+  return {
+    profileName,
+    stateVersion: appVersion,
+    serverUrl: DEFAULT_SERVER_URL,
+    token: "",
+    user: null,
+    bindings: {},
+    versionHeads: {},
+    joinedRooms: [],
+    roomSyncModes: {},
+    roomStatusCache: {},
+    panelReadAt: {
+      invites: null,
+      activity: null
+    },
+    noticeUnreadCount: 0
+  };
+}
+
+function normalizeServerUrl(serverUrl, defaultServerUrl = DEFAULT_SERVER_URL) {
   const trimmed = String(serverUrl ?? "").trim();
   if (!trimmed) {
-    return DEFAULT_STATE.serverUrl;
+    return defaultServerUrl;
   }
 
   return trimmed.replace(/\/+$/, "");
 }
 
-function normalizeState(input) {
+function normalizeState(input, defaultState) {
   const next = {
-    ...structuredClone(DEFAULT_STATE),
+    ...structuredClone(defaultState),
     ...input,
     bindings: {
-      ...structuredClone(DEFAULT_STATE.bindings),
+      ...structuredClone(defaultState.bindings),
       ...(input.bindings ?? {})
     },
     versionHeads: {
-      ...structuredClone(DEFAULT_STATE.versionHeads),
+      ...structuredClone(defaultState.versionHeads),
       ...(input.versionHeads ?? {})
     },
     roomSyncModes: {
-      ...structuredClone(DEFAULT_STATE.roomSyncModes),
+      ...structuredClone(defaultState.roomSyncModes),
       ...(input.roomSyncModes ?? {})
     },
-    roomStatusCache: structuredClone(DEFAULT_STATE.roomStatusCache),
+    roomStatusCache: structuredClone(defaultState.roomStatusCache),
     panelReadAt: {
-      ...structuredClone(DEFAULT_STATE.panelReadAt),
+      ...structuredClone(defaultState.panelReadAt),
       ...(input.panelReadAt ?? {})
     }
   };
 
-  next.serverUrl = normalizeServerUrl(next.serverUrl);
+  next.profileName = defaultState.profileName;
+  next.stateVersion = defaultState.stateVersion;
+  next.serverUrl = normalizeServerUrl(next.serverUrl, defaultState.serverUrl);
   next.joinedRooms = Array.isArray(next.joinedRooms) ? [...new Set(next.joinedRooms.filter(Boolean))] : [];
 
   for (const roomId of Object.keys(next.roomSyncModes)) {
@@ -65,7 +90,31 @@ class StateStore {
   constructor(filePath, options = {}) {
     this.filePath = filePath;
     this.fallbackPaths = Array.isArray(options.fallbackPaths) ? options.fallbackPaths : [];
-    this.state = structuredClone(DEFAULT_STATE);
+    this.appVersion = options.appVersion ?? PROFILE_CLEANUP_BASELINE_VERSION;
+    this.profileName = options.profileName ?? path.basename(this.filePath, path.extname(this.filePath));
+    this.defaultState = createDefaultState({
+      appVersion: this.appVersion,
+      profileName: this.profileName
+    });
+    this.state = structuredClone(this.defaultState);
+  }
+
+  shouldResetLoadedState(input) {
+    if (input?.profileName && input.profileName !== this.profileName) {
+      return true;
+    }
+
+    if (compareVersions(this.appVersion, PROFILE_CLEANUP_BASELINE_VERSION) <= 0) {
+      return false;
+    }
+
+    return input?.stateVersion !== this.appVersion;
+  }
+
+  createResetState(input) {
+    const resetState = structuredClone(this.defaultState);
+    resetState.serverUrl = normalizeServerUrl(input?.serverUrl, this.defaultState.serverUrl);
+    return resetState;
   }
 
   async readFirstAvailableStateFile() {
@@ -97,7 +146,19 @@ class StateStore {
         return this.getState();
       }
 
-      this.state = normalizeState(JSON.parse(loaded.content));
+      const parsed = JSON.parse(loaded.content);
+
+      if (this.shouldResetLoadedState(parsed)) {
+        console.warn(
+          `[syncall] resetting local profile state for "${this.profileName}" due to edition/profile mismatch ` +
+          `(saved edition: ${parsed?.stateVersion ?? "unknown"}, current edition: ${this.appVersion}).`
+        );
+        this.state = this.createResetState(parsed);
+        await this.save();
+        return this.getState();
+      }
+
+      this.state = normalizeState(parsed, this.defaultState);
 
       if (loaded.sourcePath !== this.filePath) {
         await this.save();
@@ -106,7 +167,7 @@ class StateStore {
       return this.getState();
     } catch (error) {
       if (error instanceof SyntaxError) {
-        this.state = structuredClone(DEFAULT_STATE);
+        this.state = structuredClone(this.defaultState);
         await this.save();
         return this.getState();
       }
@@ -145,7 +206,7 @@ class StateStore {
     this.state.joinedRooms = [];
     this.state.roomSyncModes = {};
     this.state.roomStatusCache = {};
-    this.state.panelReadAt = structuredClone(DEFAULT_STATE.panelReadAt);
+    this.state.panelReadAt = structuredClone(this.defaultState.panelReadAt);
     this.state.noticeUnreadCount = 0;
     await this.save();
   }

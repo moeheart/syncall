@@ -564,22 +564,19 @@ class SyncManager {
       return;
     }
 
-    const previousStatuses = this.getCachedRoomStatuses(roomId);
     const statuses = await this.refreshRoomStatus(roomId);
-    const status = statuses.find((entry) => entry.relativePath === relativePath)?.status;
-    const isTracked = Boolean(this.store.getVersionHead(roomId, relativePath));
-    const isRemoteOnly = status === "REMOTE";
-    const existsBefore = previousStatuses.some((entry) => entry.relativePath === relativePath);
-    const isExplicitlyOffline = status === "OFFLINE";
-
-    if (isExplicitlyOffline && existsBefore) {
+    const file = statuses.find((entry) => entry.relativePath === relativePath);
+    if (!file) {
       return;
     }
 
-    if (!isTracked && !isRemoteOnly) {
-      if (existsBefore) {
-        return;
-      }
+    const hasTrackedRemoteVersion = Boolean(file.remoteExists || this.store.getVersionHead(roomId, relativePath));
+    if (!hasTrackedRemoteVersion) {
+      return;
+    }
+
+    if (file.status === "SYNCED" || file.status === "OFFLINE" || file.status === "REMOTE") {
+      return;
     }
 
     this.scheduleUpload(roomId, folderPath, absolutePath);
@@ -619,11 +616,16 @@ class SyncManager {
       }
 
       this.pendingUploads.delete(key);
-      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
-        this.handleSyncError("upload", roomId, absolutePath, error);
-      }).finally(() => {
-        this.clearFileRunning(roomId, relativePath);
-        void this.refreshRoomStatus(roomId);
+      this.clearFileRunning(roomId, relativePath);
+      void this.refreshRoomStatus(roomId).then((statuses) => {
+        const file = statuses.find((entry) => entry.relativePath === relativePath);
+        this.notify("sync:status-changed", {
+          roomId,
+          relativePath,
+          status: file?.status ?? "REMOTE"
+        });
+      }).catch((error) => {
+        this.handleSyncError("refresh-status", roomId, absolutePath, error);
       });
     }, this.uploadIdleMs);
 

@@ -1,6 +1,6 @@
 {
   "name": "@syncall/desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Syncall desktop client",
   "author": "Syncall Team",
@@ -40,7 +40,7 @@
     }
   },
   "dependencies": {
-    "@syncall/shared": "0.1.0",
+    "@syncall/shared": "1.0.0",
     "chokidar": "^4.0.3",
     "socket.io-client": "^4.8.1",
     "vue": "^3.5.13"

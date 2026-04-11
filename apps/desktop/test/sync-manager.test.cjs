@@ -22,7 +22,7 @@ function createStore(rootDir) {
     setBinding: async () => {},
     getJoinedRooms: () => ["room1"],
     setJoinedRooms: async () => {},
-    getServerUrl: () => "http://localhost:4000",
+    getServerUrl: () => "http://syncall.moeheart.cn",
     getVersionHead: () => null,
     setVersionHead: async () => {},
     removeVersionHead: async () => {},
@@ -89,6 +89,53 @@ test("scheduleUpload ignores new work after shutdown begins", async () => {
   }
 });
 
+test("scheduleUpload settles tracked edits into a status refresh without uploading", async () => {
+  const rootDir = createTempRoot();
+
+  try {
+    const filePath = path.join(rootDir, "tracked.log");
+    fs.writeFileSync(filePath, "hello", "utf8");
+
+    const notifications = [];
+    const manager = new SyncManager({
+      store: createStore(rootDir),
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
+      notify: (type, payload) => {
+        notifications.push({ type, payload });
+      },
+      uploadIdleMs: 25
+    });
+
+    let uploadCount = 0;
+    manager.uploadFromPath = async () => {
+      uploadCount += 1;
+    };
+    manager.refreshRoomStatus = async () => [
+      {
+        relativePath: "tracked.log",
+        status: "MODIFIED_LOCAL"
+      }
+    ];
+
+    manager.scheduleUpload("room1", rootDir, filePath);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    assert.equal(uploadCount, 0);
+    assert.equal(manager.pendingUploads.size, 0);
+    assert.deepEqual(
+      notifications.map((event) => [event.type, event.payload.status]),
+      [
+        ["sync:status-changed", "RUNNING"],
+        ["sync:status-changed", "MODIFIED_LOCAL"]
+      ]
+    );
+  } finally {
+    cleanupTempRoot(rootDir);
+  }
+});
+
 test("bindFolder keeps the room paused and does not start a watcher immediately", async () => {
   const rootDir = createTempRoot();
   const bindings = {};
@@ -115,6 +162,82 @@ test("bindFolder keeps the room paused and does not start a watcher immediately"
 
     assert.equal(manager.watchers.size, 0);
     assert.equal(store.getBinding("room1").folderPath, rootDir);
+  } finally {
+    cleanupTempRoot(rootDir);
+  }
+});
+
+test("handleLocalChange keeps offline-only files manual", async () => {
+  const rootDir = createTempRoot();
+
+  try {
+    const filePath = path.join(rootDir, "offline.log");
+    fs.writeFileSync(filePath, "hello", "utf8");
+
+    const manager = new SyncManager({
+      store: createStore(rootDir),
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
+      notify: () => {}
+    });
+
+    let scheduled = 0;
+    manager.scheduleUpload = () => {
+      scheduled += 1;
+    };
+    manager.refreshRoomStatus = async () => [
+      {
+        relativePath: "offline.log",
+        status: "OFFLINE",
+        remoteExists: false
+      }
+    ];
+
+    await manager.handleLocalChange("room1", rootDir, filePath);
+
+    assert.equal(scheduled, 0);
+  } finally {
+    cleanupTempRoot(rootDir);
+  }
+});
+
+test("handleLocalChange debounces tracked remote-backed edits", async () => {
+  const rootDir = createTempRoot();
+
+  try {
+    const filePath = path.join(rootDir, "tracked.log");
+    fs.writeFileSync(filePath, "hello", "utf8");
+
+    const manager = new SyncManager({
+      store: createStore(rootDir),
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
+      notify: () => {}
+    });
+
+    const scheduled = [];
+    manager.scheduleUpload = (roomId, folderPath, absolutePath) => {
+      scheduled.push({ roomId, folderPath, absolutePath });
+    };
+    manager.refreshRoomStatus = async () => [
+      {
+        relativePath: "tracked.log",
+        status: "MODIFIED_LOCAL",
+        remoteExists: true
+      }
+    ];
+
+    await manager.handleLocalChange("room1", rootDir, filePath);
+
+    assert.deepEqual(scheduled, [
+      {
+        roomId: "room1",
+        folderPath: rootDir,
+        absolutePath: filePath
+      }
+    ]);
   } finally {
     cleanupTempRoot(rootDir);
   }

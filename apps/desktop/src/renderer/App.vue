@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import type { FileStatus, FileVersionSummary, InviteSummary, NotificationSummary, RoomFileStatusSummary, RoomMemberSummary, RoomSummary, RoomSyncStateSummary, SyncEventSummary, UserSummary } from "@syncall/shared";
+import type {
+  CompatibilitySummary,
+  FileStatus,
+  FileVersionSummary,
+  InviteSummary,
+  NotificationSummary,
+  RoomFileStatusSummary,
+  RoomMemberSummary,
+  RoomSummary,
+  RoomSyncStateSummary,
+  SyncEventSummary,
+  UserSummary
+} from "@syncall/shared";
 
 interface DesktopState {
+  appVersion: string;
   serverUrl: string;
   token: string;
   user: { id: string; username: string; email: string } | null;
@@ -20,12 +33,14 @@ interface DashboardPayload {
   user: DesktopState["user"];
   serverUrl: string;
   profile: string;
+  appVersion: string;
 }
 
 declare global {
   interface Window {
     syncall: {
       getState: () => Promise<DesktopState>;
+      getCompatibility: () => Promise<CompatibilitySummary>;
       setServerUrl: (serverUrl: string) => Promise<DesktopState>;
       register: (payload: { username: string; email: string; password: string }) => Promise<DashboardPayload>;
       login: (payload: { email: string; password: string }) => Promise<DashboardPayload>;
@@ -52,7 +67,7 @@ declare global {
   }
 }
 
-const state = ref<DesktopState>({ serverUrl: "http://localhost:4000", token: "", user: null, bindings: {} });
+const state = ref<DesktopState>({ appVersion: "1.0.0", serverUrl: "http://syncall.moeheart.cn", token: "", user: null, bindings: {} });
 const rooms = ref<RoomSummary[]>([]);
 const invites = ref<InviteSummary[]>([]);
 const events = ref<SyncEventSummary[]>([]);
@@ -73,11 +88,12 @@ const password = ref("");
 const newRoomName = ref("");
 const inviteUsername = ref("");
 const userSearch = ref("");
-const serverUrlInput = ref("http://localhost:4000");
+const serverUrlInput = ref("http://syncall.moeheart.cn");
 const errorMessage = ref("");
 const profileName = ref("default");
 const activeDrawer = ref<"invites" | "activity" | "notices" | "history" | null>(null);
 const ignoredRoomSelection = ref<string | null>(null);
+const serverCompatibility = ref<CompatibilitySummary | null>(null);
 const bridgeReady = computed(() => typeof window !== "undefined" && typeof window.syncall !== "undefined");
 
 const isAuthenticated = computed(() => Boolean(state.value.token && state.value.user));
@@ -101,6 +117,7 @@ function applyDashboard(payload: DashboardPayload) {
   notifications.value = payload.notifications;
   state.value.user = payload.user;
   state.value.serverUrl = payload.serverUrl;
+  state.value.appVersion = payload.appVersion;
   state.value.bindings = payload.bindings;
   state.value.token = payload.user ? "session" : "";
   serverUrlInput.value = payload.serverUrl;
@@ -155,6 +172,11 @@ async function saveServerUrl() {
     return;
   }
   state.value = await window.syncall.setServerUrl(serverUrlInput.value);
+  try {
+    serverCompatibility.value = await window.syncall.getCompatibility();
+  } catch {
+    serverCompatibility.value = null;
+  }
 }
 
 async function submitAuth() {
@@ -352,6 +374,11 @@ onMounted(async () => {
   }
   state.value = await window.syncall.getState();
   serverUrlInput.value = state.value.serverUrl;
+  try {
+    serverCompatibility.value = await window.syncall.getCompatibility();
+  } catch {
+    serverCompatibility.value = null;
+  }
   if (state.value.token) {
     try {
       await refreshDashboard();
@@ -405,9 +432,10 @@ onMounted(async () => {
             <p class="eyebrow">Syncall Desktop</p>
             <h1>Room-controlled sync for heavy log folders.</h1>
           </div>
-          <span class="chip">{{ profileName }}</span>
+          <span class="chip">{{ profileName }} | v{{ state.appVersion }}</span>
         </div>
         <p class="muted">Bind first, inspect status, then decide what enters sync.</p>
+        <p class="muted" v-if="serverCompatibility">Server requires edition {{ serverCompatibility.minimumCompatibleClientVersion }} or newer.</p>
       </section>
 
       <section class="card">

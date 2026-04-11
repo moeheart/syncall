@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("syncall", {
   getState: () => ipcRenderer.invoke("syncall:get-state"),
+  getCompatibility: () => ipcRenderer.invoke("syncall:get-compatibility"),
   setServerUrl: (serverUrl) => ipcRenderer.invoke("syncall:set-server-url", serverUrl),
   register: (payload) => ipcRenderer.invoke("syncall:register", payload),
   login: (payload) => ipcRenderer.invoke("syncall:login", payload),

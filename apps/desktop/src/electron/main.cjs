@@ -7,6 +7,7 @@ const { acquireProfileRuntimeSync, releaseProfileLockSync } = require("./service
 
 const isDev = !app.isPackaged;
 const hardStopOnWindowClose = process.platform === "win32";
+const appVersion = app.getVersion();
 
 let mainWindow = null;
 let isShuttingDown = false;
@@ -37,6 +38,8 @@ app.setPath("userData", profileDataRoot);
 app.setPath("sessionData", path.join(profileDataRoot, "session"));
 
 const stateStore = new StateStore(path.join(app.getPath("userData"), "state.json"), {
+  appVersion,
+  profileName,
   fallbackPaths: [
     path.join(app.getPath("appData"), "Electron", `${profileName}.json`),
     path.join(app.getPath("appData"), "@syncall", "desktop", `${profileName}.json`),
@@ -48,7 +51,10 @@ const stateStore = new StateStore(path.join(app.getPath("userData"), "state.json
       : [])
   ]
 });
-const apiClient = new ApiClient(stateStore);
+const apiClient = new ApiClient(stateStore, {
+  clientVersion: appVersion,
+  clientName: "desktop"
+});
 
 function shouldCountAsNotice(type) {
   return [
@@ -230,7 +236,15 @@ async function buildDashboard() {
     bindings: stateStore.getBindings(),
     user: stateStore.getUser(),
     serverUrl: stateStore.getServerUrl(),
-    profile: profileName
+    profile: profileName,
+    appVersion
+  };
+}
+
+function buildDesktopState() {
+  return {
+    ...stateStore.getState(),
+    appVersion
   };
 }
 
@@ -275,11 +289,12 @@ app.on("activate", async () => {
   }
 });
 
-ipcMain.handle("syncall:get-state", async () => stateStore.getState());
+ipcMain.handle("syncall:get-state", async () => buildDesktopState());
+ipcMain.handle("syncall:get-compatibility", async () => apiClient.getCompatibility());
 ipcMain.handle("syncall:set-server-url", async (_event, serverUrl) => {
   ensureRunning();
   await stateStore.setServerUrl(serverUrl);
-  return stateStore.getState();
+  return buildDesktopState();
 });
 ipcMain.handle("syncall:register", async (_event, payload) => {
   ensureRunning();
@@ -307,7 +322,7 @@ ipcMain.handle("syncall:logout", async () => {
   ensureRunning();
   await syncManager.clearSession();
   await stateStore.clearSession();
-  return stateStore.getState();
+  return buildDesktopState();
 });
 ipcMain.handle("syncall:fetch-dashboard", async () => buildDashboard());
 ipcMain.handle("syncall:create-room", async (_event, name) => {
