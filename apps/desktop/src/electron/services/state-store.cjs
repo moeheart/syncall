@@ -42,10 +42,7 @@ function normalizeState(input) {
       ...structuredClone(DEFAULT_STATE.roomSyncModes),
       ...(input.roomSyncModes ?? {})
     },
-    roomStatusCache: {
-      ...structuredClone(DEFAULT_STATE.roomStatusCache),
-      ...(input.roomStatusCache ?? {})
-    },
+    roomStatusCache: structuredClone(DEFAULT_STATE.roomStatusCache),
     panelReadAt: {
       ...structuredClone(DEFAULT_STATE.panelReadAt),
       ...(input.panelReadAt ?? {})

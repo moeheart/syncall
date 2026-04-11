@@ -77,6 +77,7 @@ const serverUrlInput = ref("http://localhost:4000");
 const errorMessage = ref("");
 const profileName = ref("default");
 const activeDrawer = ref<"invites" | "activity" | "notices" | "history" | null>(null);
+const ignoredRoomSelection = ref<string | null>(null);
 const bridgeReady = computed(() => typeof window !== "undefined" && typeof window.syncall !== "undefined");
 
 const isAuthenticated = computed(() => Boolean(state.value.token && state.value.user));
@@ -110,7 +111,11 @@ function applyDashboard(payload: DashboardPayload) {
     roomFiles.value = [];
     return;
   }
-  selectedRoomId.value = payload.rooms.some((room) => room.id === previousSelection) ? previousSelection : payload.rooms[0].id;
+  const nextSelection = payload.rooms.some((room) => room.id === previousSelection) ? previousSelection : payload.rooms[0].id;
+  if (nextSelection !== selectedRoomId.value) {
+    ignoredRoomSelection.value = nextSelection;
+    selectedRoomId.value = nextSelection;
+  }
 }
 
 async function loadMembers(roomId: string) {
@@ -328,6 +333,10 @@ async function runPrimaryFileAction(file: RoomFileStatusSummary) {
 }
 
 watch(selectedRoomId, async () => {
+  if (ignoredRoomSelection.value && ignoredRoomSelection.value === selectedRoomId.value) {
+    ignoredRoomSelection.value = null;
+    return;
+  }
   if (selectedRoomId.value) {
     await refreshSelectedRoom();
   } else {

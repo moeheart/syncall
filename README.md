@@ -121,6 +121,15 @@ Approved by Edgar
   npm run reset:sync-data --workspace @syncall/server
   ```
 - This deletes file metadata, file versions, sync activity, client folder bindings, and all stored blobs under `STORAGE_DIR`.
+- The reset command now verifies that `FileEntry`, `FileVersion`, `SyncEvent`, and `ClientFolderBinding` all end at zero rows after cleanup.
+
+### Local desktop cleanup
+
+- If you also want to remove locally cached bindings, version heads, and room status state for one Windows profile, run:
+  ```bash
+  npm run reset:profile --workspace @syncall/desktop -- --profile=alice
+  ```
+- Replace `alice` with the profile name you actually use. This is separate from the server reset and is sometimes needed when you want a truly fresh client state after testing.
 
 ### Ubuntu server notes
 

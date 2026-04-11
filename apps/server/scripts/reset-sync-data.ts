@@ -23,13 +23,26 @@ async function resetSyncData() {
       "ClientFolderBinding",
       "FileVersion",
       "FileEntry"
+    RESTART IDENTITY
+    CASCADE
   `);
+
+  const [remainingSyncEvents, remainingFileVersions, remainingFileEntries, remainingBindings] = await Promise.all([
+    prisma.syncEvent.count(),
+    prisma.fileVersion.count(),
+    prisma.fileEntry.count(),
+    prisma.clientFolderBinding.count()
+  ]);
 
   const result = {
     deletedSyncEvents,
     deletedFileVersions,
     deletedFileEntries,
-    deletedBindings
+    deletedBindings,
+    remainingSyncEvents,
+    remainingFileVersions,
+    remainingFileEntries,
+    remainingBindings
   };
 
   await recreateStorageRoot();
