@@ -9,26 +9,28 @@ async function recreateStorageRoot() {
 }
 
 async function resetSyncData() {
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.fileEntry.updateMany({
-      data: {
-        currentVersionId: null,
-        deletedAt: null
-      }
-    });
+  const [deletedSyncEvents, deletedFileVersions, deletedFileEntries, deletedBindings] = await Promise.all([
+    prisma.syncEvent.count(),
+    prisma.fileVersion.count(),
+    prisma.fileEntry.count(),
+    prisma.clientFolderBinding.count()
+  ]);
 
-    const deletedSyncEvents = await tx.syncEvent.deleteMany();
-    const deletedFileVersions = await tx.fileVersion.deleteMany();
-    const deletedFileEntries = await tx.fileEntry.deleteMany();
-    const deletedBindings = await tx.clientFolderBinding.deleteMany();
+  // Use a single PostgreSQL TRUNCATE instead of long-running row-by-row deletes.
+  await prisma.$executeRawUnsafe(`
+    TRUNCATE TABLE
+      "SyncEvent",
+      "ClientFolderBinding",
+      "FileVersion",
+      "FileEntry"
+  `);
 
-    return {
-      deletedSyncEvents: deletedSyncEvents.count,
-      deletedFileVersions: deletedFileVersions.count,
-      deletedFileEntries: deletedFileEntries.count,
-      deletedBindings: deletedBindings.count
-    };
-  });
+  const result = {
+    deletedSyncEvents,
+    deletedFileVersions,
+    deletedFileEntries,
+    deletedBindings
+  };
 
   await recreateStorageRoot();
 
