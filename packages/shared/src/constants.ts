@@ -1,8 +1,10 @@
 export const SOCKET_EVENTS = {
   roomJoin: "room:join",
   roomLeave: "room:leave",
+  roomSyncState: "room:sync-state",
   presenceUpdate: "presence:update",
   inviteReceived: "invite:received",
+  statusChanged: "sync:status-changed",
   fileUpdated: "sync:file-updated",
   fileDeleted: "sync:file-deleted",
   restoreCompleted: "sync:restore-completed",

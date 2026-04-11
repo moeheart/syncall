@@ -144,10 +144,13 @@ Approved by Edgar
 ### Responsibilities
 
 - Let users register, log in, create rooms, and accept invites
-- Bind one local folder per room
-- Watch the local folder for file create/change/delete events
+- Bind one local folder per room without starting sync immediately
+- Show file status per room as `OFFLINE`, `REMOTE`, `SYNCED`, `MODIFIED_LOCAL`, `MODIFIED_REMOTE`, or `RUNNING`
+- Start or pause room sync explicitly from the desktop UI
+- Watch the local folder for file create/change/delete events only while room sync is running
 - Gzip-compress changed files before upload
-- Download remote updates and write them into the local folder
+- Download remote-only files when a room starts syncing
+- Keep pre-existing local files offline until the user syncs them individually or with `Sync All Offline`
 - Show history and compression statistics, then trigger restore requests
 
 ### Main client files
@@ -180,6 +183,14 @@ Approved by Edgar
   ```bash
   npm run dev:desktop:dual
   ```
+
+### Client behavior in v2
+
+- Binding a folder does not upload or download anything by itself.
+- When the app restarts, joined rooms and folder bindings are restored, but every room comes back in `PAUSED` mode.
+- `Start Sync` begins active watching for that room and downloads `REMOTE` files.
+- Pre-existing local-only files stay `OFFLINE` until the user syncs them explicitly.
+- File activity, invites, and notices are now collapsed behind drawer buttons with notification bubbles so the main workspace does not grow without bound.
 
 ### Client packaging
 

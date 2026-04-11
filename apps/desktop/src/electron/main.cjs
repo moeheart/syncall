@@ -49,10 +49,52 @@ const stateStore = new StateStore(path.join(app.getPath("userData"), "state.json
   ]
 });
 const apiClient = new ApiClient(stateStore);
+
+function shouldCountAsNotice(type) {
+  return [
+    "sync:error",
+    "sync:uploaded",
+    "sync:downloaded",
+    "sync:deleted",
+    "sync:remote-delete",
+    "sync:restore-completed"
+  ].includes(type);
+}
+
+function getLocalMemberSyncState(roomId) {
+  if (!stateStore.getBinding(roomId)) {
+    return "OFFLINE";
+  }
+
+  return stateStore.getRoomSyncMode(roomId) === "RUNNING" ? "SYNCING" : "PAUSED";
+}
+
+function buildRoomStateSummary(roomId) {
+  const cachedSummary = stateStore.getRoomStatusCache(roomId);
+  if (cachedSummary) {
+    return cachedSummary;
+  }
+
+  return {
+    roomId,
+    folderPath: stateStore.getBinding(roomId)?.folderPath ?? null,
+    syncMode: stateStore.getRoomSyncMode(roomId),
+    memberSyncState: getLocalMemberSyncState(roomId),
+    offlineCount: 0,
+    remoteCount: 0,
+    modifiedLocalCount: 0,
+    modifiedRemoteCount: 0,
+    runningCount: 0
+  };
+}
+
 const syncManager = new SyncManager({
   store: stateStore,
   apiClient,
   notify: (type, payload) => {
+    if (shouldCountAsNotice(type)) {
+      void stateStore.incrementNoticeUnread();
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("syncall:event", { type, payload });
     }
@@ -169,11 +211,22 @@ async function buildDashboard() {
     apiClient.listUsers()
   ]);
 
+  await syncManager.syncJoinedRooms(rooms.rooms.map((room) => room.id));
+
+  const invitesReadAt = stateStore.getPanelReadAt("invites");
+  const activityReadAt = stateStore.getPanelReadAt("activity");
+
   return {
     rooms: rooms.rooms,
     invites: invites.invites,
     events: events.events,
     users: users.users,
+    roomStates: rooms.rooms.map((room) => buildRoomStateSummary(room.id)),
+    notifications: {
+      invitesUnread: invites.invites.filter((invite) => !invitesReadAt || invite.createdAt > invitesReadAt).length,
+      noticesUnread: stateStore.getNoticeUnreadCount(),
+      activityUnread: events.events.filter((event) => !activityReadAt || event.createdAt > activityReadAt).length
+    },
     bindings: stateStore.getBindings(),
     user: stateStore.getUser(),
     serverUrl: stateStore.getServerUrl(),
@@ -287,6 +340,51 @@ ipcMain.handle("syncall:bind-folder", async (_event, roomId, folderPath) => {
   requireSession();
   await syncManager.bindFolder(roomId, folderPath);
   return buildDashboard();
+});
+ipcMain.handle("syncall:list-room-files", async (_event, roomId) => {
+  requireSession();
+  return {
+    files: await syncManager.listRoomFiles(roomId)
+  };
+});
+ipcMain.handle("syncall:start-room-sync", async (_event, roomId) => {
+  requireSession();
+  await syncManager.startRoomSync(roomId);
+  return buildDashboard();
+});
+ipcMain.handle("syncall:pause-room-sync", async (_event, roomId) => {
+  requireSession();
+  await syncManager.pauseRoomSync(roomId);
+  return buildDashboard();
+});
+ipcMain.handle("syncall:sync-file", async (_event, roomId, relativePath) => {
+  requireSession();
+  return {
+    files: await syncManager.syncFile(roomId, relativePath)
+  };
+});
+ipcMain.handle("syncall:sync-all-offline", async (_event, roomId) => {
+  requireSession();
+  return {
+    files: await syncManager.syncAllOffline(roomId)
+  };
+});
+ipcMain.handle("syncall:resolve-modified-local", async (_event, roomId, relativePath) => {
+  requireSession();
+  return {
+    files: await syncManager.resolveModifiedLocal(roomId, relativePath)
+  };
+});
+ipcMain.handle("syncall:resolve-modified-remote", async (_event, roomId, relativePath) => {
+  requireSession();
+  return {
+    files: await syncManager.resolveModifiedRemote(roomId, relativePath)
+  };
+});
+ipcMain.handle("syncall:mark-panel-read", async (_event, panelId) => {
+  ensureRunning();
+  await stateStore.markPanelRead(panelId);
+  return { success: true };
 });
 ipcMain.handle("syncall:list-history", async (_event, roomId, relativePath) => {
   requireSession();

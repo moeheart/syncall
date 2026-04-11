@@ -110,6 +110,10 @@ class ApiClient {
     return this.request(`/rooms/${roomId}/files`);
   }
 
+  listFileStatuses(roomId) {
+    return this.request(`/rooms/${roomId}/files/status`);
+  }
+
   listHistory(roomId, relativePath) {
     const query = new URLSearchParams({ path: relativePath }).toString();
     return this.request(`/rooms/${roomId}/files/history?${query}`);

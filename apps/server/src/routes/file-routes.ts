@@ -26,7 +26,43 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
         }
       },
       include: {
-        currentVersion: true
+        currentVersion: {
+          include: {
+            uploader: {
+              select: { username: true }
+            }
+          }
+        }
+      },
+      orderBy: {
+        relativePath: "asc"
+      }
+    });
+
+    return {
+      files: files.map(toActiveFileSummary)
+    };
+  });
+
+  app.get("/rooms/:roomId/files/status", { preHandler: [app.authenticate] }, async (request) => {
+    const { roomId } = request.params as { roomId: string };
+    await ensureRoomMembership(roomId, request.user.id);
+    const files = await prisma.fileEntry.findMany({
+      where: {
+        roomId,
+        deletedAt: null,
+        currentVersionId: {
+          not: null
+        }
+      },
+      include: {
+        currentVersion: {
+          include: {
+            uploader: {
+              select: { username: true }
+            }
+          }
+        }
       },
       orderBy: {
         relativePath: "asc"

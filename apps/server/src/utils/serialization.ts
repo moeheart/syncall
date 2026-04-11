@@ -20,7 +20,9 @@ type VersionWithUploader = FileVersion & {
 };
 
 type ActiveFileWithVersion = FileEntry & {
-  currentVersion: FileVersion | null;
+  currentVersion: (FileVersion & {
+    uploader: Pick<User, "username">;
+  }) | null;
 };
 
 type SyncEventWithActor = SyncEvent & {
@@ -80,7 +82,9 @@ export function toActiveFileSummary(file: ActiveFileWithVersion): ActiveFileSumm
     checksum: file.currentVersion.checksum,
     originalSize: file.currentVersion.originalSize,
     compressedSize: file.currentVersion.compressedSize,
-    updatedAt: file.updatedAt.toISOString()
+    updatedAt: file.updatedAt.toISOString(),
+    ownerUsername: file.currentVersion.uploader.username,
+    createdAt: file.createdAt.toISOString()
   };
 }
 

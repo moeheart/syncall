@@ -4,6 +4,7 @@ import { InviteStatus, MembershipRole } from "@prisma/client";
 import { SOCKET_EVENTS } from "@syncall/shared";
 import { prisma } from "../lib/prisma";
 import { createRoom, ensureRoomMembership, listDiscoverableUsers, listInvitesForUser, listMembersForRoom, listRoomsForUser } from "../services/room-service";
+import { getUserSyncState } from "../services/presence-service";
 import { toInviteSummary, toRoomSummary, toSyncEventSummary } from "../utils/serialization";
 
 const roomRoutes: FastifyPluginAsync = async (app) => {
@@ -95,7 +96,8 @@ const roomRoutes: FastifyPluginAsync = async (app) => {
         username: member.user.username,
         email: member.user.email,
         role: member.role,
-        joinedAt: member.createdAt.toISOString()
+        joinedAt: member.createdAt.toISOString(),
+        syncState: getUserSyncState(roomId, member.user.id)
       }))
     };
   });

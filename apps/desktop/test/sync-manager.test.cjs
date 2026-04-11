@@ -4,7 +4,7 @@ const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { SyncManager } = require("../src/electron/services/sync-manager.cjs");
+const { SyncManager, deriveFileStatus } = require("../src/electron/services/sync-manager.cjs");
 
 function createTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "syncall-sync-manager-"));
@@ -19,10 +19,16 @@ function createStore(rootDir) {
     getToken: () => "",
     getBindings: () => ({ room1: { folderPath: rootDir } }),
     getBinding: () => ({ folderPath: rootDir }),
+    setBinding: async () => {},
+    getJoinedRooms: () => ["room1"],
+    setJoinedRooms: async () => {},
     getServerUrl: () => "http://localhost:4000",
     getVersionHead: () => null,
     setVersionHead: async () => {},
-    removeVersionHead: async () => {}
+    removeVersionHead: async () => {},
+    getRoomSyncMode: () => "PAUSED",
+    setRoomSyncMode: async () => {},
+    setRoomStatusCache: async () => {}
   };
 }
 
@@ -35,7 +41,9 @@ test("shutdown cancels pending uploads before they run", async () => {
 
     const manager = new SyncManager({
       store: createStore(rootDir),
-      apiClient: {},
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
       notify: () => {},
       uploadIdleMs: 25
     });
@@ -65,7 +73,9 @@ test("scheduleUpload ignores new work after shutdown begins", async () => {
 
     const manager = new SyncManager({
       store: createStore(rootDir),
-      apiClient: {},
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
       notify: () => {},
       uploadIdleMs: 25
     });
@@ -77,4 +87,103 @@ test("scheduleUpload ignores new work after shutdown begins", async () => {
   } finally {
     cleanupTempRoot(rootDir);
   }
+});
+
+test("bindFolder keeps the room paused and does not start a watcher immediately", async () => {
+  const rootDir = createTempRoot();
+  const bindings = {};
+
+  try {
+    const store = {
+      ...createStore(rootDir),
+      getBindings: () => bindings,
+      getBinding: (roomId) => bindings[roomId] ?? null,
+      setBinding: async (roomId, binding) => {
+        bindings[roomId] = binding;
+      }
+    };
+
+    const manager = new SyncManager({
+      store,
+      apiClient: {
+        listFileStatuses: async () => ({ files: [] })
+      },
+      notify: () => {}
+    });
+
+    await manager.bindFolder("room1", rootDir);
+
+    assert.equal(manager.watchers.size, 0);
+    assert.equal(store.getBinding("room1").folderPath, rootDir);
+  } finally {
+    cleanupTempRoot(rootDir);
+  }
+});
+
+test("deriveFileStatus classifies common room file states", () => {
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: false,
+      isRunning: false
+    }),
+    "OFFLINE"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: false,
+      hasRemoteFile: true,
+      isRunning: false
+    }),
+    "REMOTE"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: true,
+      isRunning: false,
+      localChecksum: "a",
+      remoteChecksum: "a"
+    }),
+    "SYNCED"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: true,
+      isRunning: false,
+      localChecksum: "a",
+      remoteChecksum: "b",
+      lastSyncedHead: "v1",
+      remoteVersionId: "v1"
+    }),
+    "MODIFIED_LOCAL"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: true,
+      isRunning: false,
+      localChecksum: "a",
+      remoteChecksum: "b",
+      lastSyncedHead: "v1",
+      remoteVersionId: "v2"
+    }),
+    "MODIFIED_REMOTE"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: true,
+      isRunning: true,
+      localChecksum: "a",
+      remoteChecksum: "b"
+    }),
+    "RUNNING"
+  );
 });

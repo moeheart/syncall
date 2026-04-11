@@ -1,4 +1,7 @@
 export type CompressionAlgorithm = "gzip";
+export type RoomSyncMode = "PAUSED" | "RUNNING";
+export type MemberSyncState = "SYNCING" | "PAUSED" | "OFFLINE";
+export type FileStatus = "OFFLINE" | "REMOTE" | "SYNCED" | "MODIFIED_LOCAL" | "MODIFIED_REMOTE" | "RUNNING";
 
 export interface AuthTokens {
   token: string;
@@ -23,6 +26,7 @@ export interface RoomMemberSummary {
   email: string;
   role: "OWNER" | "MEMBER";
   joinedAt: string;
+  syncState?: MemberSyncState;
 }
 
 export interface RoomSummary {
@@ -68,6 +72,50 @@ export interface ActiveFileSummary {
   originalSize: number;
   compressedSize: number;
   updatedAt: string;
+  ownerUsername: string;
+  createdAt: string;
+}
+
+export interface RoomSyncStateSummary {
+  roomId: string;
+  folderPath: string | null;
+  syncMode: RoomSyncMode;
+  memberSyncState?: MemberSyncState;
+  offlineCount: number;
+  remoteCount: number;
+  modifiedLocalCount: number;
+  modifiedRemoteCount: number;
+  runningCount: number;
+}
+
+export interface RoomFileStatusSummary {
+  roomId: string;
+  relativePath: string;
+  displayName: string;
+  status: FileStatus;
+  localExists: boolean;
+  remoteExists: boolean;
+  localSize: number | null;
+  remoteSize: number | null;
+  localModifiedAt: string | null;
+  remoteModifiedAt: string | null;
+  ownerUsername: string | null;
+  currentVersionId: string | null;
+  currentVersionNumber: number | null;
+  isSelectedForSync: boolean;
+}
+
+export interface NotificationSummary {
+  invitesUnread: number;
+  noticesUnread: number;
+  activityUnread: number;
+}
+
+export interface PresenceUpdateEvent {
+  roomId: string;
+  userId: string;
+  username: string;
+  syncState: MemberSyncState;
 }
 
 export interface SyncEventSummary {

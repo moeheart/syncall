@@ -1,9 +1,11 @@
 import fp from "fastify-plugin";
 import { Server } from "socket.io";
 import { SOCKET_EVENTS } from "@syncall/shared";
+import type { MemberSyncState } from "@syncall/shared";
 import { config } from "../config";
 import { prisma } from "../lib/prisma";
 import { verifyToken } from "../services/token-service";
+import { clearRoomPresence, clearUserPresence, setRoomPresence } from "../services/presence-service";
 
 async function socketPlugin(app: import("fastify").FastifyInstance) {
   const io = new Server(app.server, {
@@ -30,7 +32,9 @@ async function socketPlugin(app: import("fastify").FastifyInstance) {
   });
 
   io.on("connection", (socket) => {
-    socket.on(SOCKET_EVENTS.roomJoin, async (roomId: string) => {
+    socket.on(SOCKET_EVENTS.roomJoin, async (payload: string | { roomId: string; syncState?: MemberSyncState }) => {
+      const roomId = typeof payload === "string" ? payload : payload.roomId;
+      const syncState = typeof payload === "string" ? "OFFLINE" : payload.syncState ?? "OFFLINE";
       const membership = await prisma.roomMembership.findUnique({
         where: {
           roomId_userId: {
@@ -46,20 +50,26 @@ async function socketPlugin(app: import("fastify").FastifyInstance) {
       }
 
       socket.join(roomId);
-      io.to(roomId).emit(SOCKET_EVENTS.presenceUpdate, {
-        roomId,
-        username: socket.data.user.username,
-        online: true
-      });
+      const update = setRoomPresence(roomId, socket.data.user.id, socket.data.user.username, syncState);
+      io.to(roomId).emit(SOCKET_EVENTS.presenceUpdate, update);
     });
 
     socket.on(SOCKET_EVENTS.roomLeave, (roomId: string) => {
       socket.leave(roomId);
-      io.to(roomId).emit(SOCKET_EVENTS.presenceUpdate, {
-        roomId,
-        username: socket.data.user.username,
-        online: false
-      });
+      const update = clearRoomPresence(roomId, socket.data.user.id, socket.data.user.username);
+      io.to(roomId).emit(SOCKET_EVENTS.presenceUpdate, update);
+    });
+
+    socket.on(SOCKET_EVENTS.roomSyncState, ({ roomId, syncState }: { roomId: string; syncState: MemberSyncState }) => {
+      const update = setRoomPresence(roomId, socket.data.user.id, socket.data.user.username, syncState);
+      io.to(roomId).emit(SOCKET_EVENTS.presenceUpdate, update);
+    });
+
+    socket.on("disconnect", () => {
+      const updates = clearUserPresence(socket.data.user.id, socket.data.user.username);
+      for (const update of updates) {
+        io.to(update.roomId).emit(SOCKET_EVENTS.presenceUpdate, update);
+      }
     });
   });
 
@@ -71,4 +81,3 @@ async function socketPlugin(app: import("fastify").FastifyInstance) {
 }
 
 export default fp(socketPlugin);
-
