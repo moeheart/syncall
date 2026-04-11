@@ -114,6 +114,14 @@ Approved by Edgar
    npm run dev:server
    ```
 
+### Server maintenance
+
+- Reset server-side sync state while keeping users, rooms, memberships, and invites:
+  ```bash
+  npm run reset:sync-data --workspace @syncall/server
+  ```
+- This deletes file metadata, file versions, sync activity, client folder bindings, and all stored blobs under `STORAGE_DIR`.
+
 ### Ubuntu server notes
 
 - The production server target can stay `Node.js + Fastify + PostgreSQL` on Ubuntu without any architecture change.
@@ -191,6 +199,7 @@ Approved by Edgar
   ```text
   apps/desktop/release/
   ```
+- On Windows, closing the client window fully terminates that client process and stops syncing immediately.
 - On some Windows machines, the NSIS installer step may fail because Electron Builder extracts a signing helper that needs symlink privileges. In that case, use the unpacked executable or the zipped portable build instead.
 
 ### Testing two clients on one Windows machine
@@ -208,14 +217,21 @@ Approved by Edgar
   ```bash
   npm run dev:desktop:dual
   ```
+- For packaged Windows builds, use explicit profiles when you want more than one local client:
+  ```text
+  @syncalldesktop.exe
+  @syncalldesktop.exe --profile=alice
+  @syncalldesktop.exe --profile=bob
+  ```
 - Each profile uses its own local session and binding file, so you can log in as two different users on the same machine and bind two different folders.
+- Starting the same profile twice is intentionally blocked.
 - For a local sync test, create two folders such as:
   ```text
   C:\syncall-test\alice
   C:\syncall-test\bob
   ```
 - Then run two client windows with different profiles, sign in as different users, join the same room, and bind each client to a different folder.
-- The `dev:desktop` command now reuses an already running desktop dev server on port `5173`, so opening another client no longer fails just because the first client already started the UI host.
+- The `dev:desktop` command reuses an already running desktop dev server on port `5173`, but multi-client testing is still expected to use explicit profiles.
 
 ## Website
 

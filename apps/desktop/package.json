@@ -14,6 +14,7 @@
     "dev:dual": "concurrently -k \"npm run dev:host\" \"wait-on tcp:5173 && powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-electron-dev.ps1 --profile=alice\" \"wait-on tcp:5173 && powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-electron-dev.ps1 --profile=bob\"",
     "package:dir": "npm run build && electron-builder --win dir",
     "package:win": "npm run build && electron-builder --win nsis",
+    "test": "node --test test/*.test.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "build": {
@@ -28,7 +29,13 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "dependencies": {

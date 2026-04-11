@@ -7,6 +7,7 @@ const { io } = require("socket.io-client");
 
 const IGNORED_PATTERNS = [/^\.syncall(\/|\\|$)/, /\.tmp$/i, /\.swp$/i, /~$/];
 const MAX_ORIGINAL_FILE_BYTES = 200 * 1024 * 1024;
+const DEFAULT_UPLOAD_IDLE_MS = 4000;
 
 function normalizeRelativePath(input) {
   return input.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -34,16 +35,23 @@ async function walkFiles(rootDir) {
 }
 
 class SyncManager {
-  constructor({ store, apiClient, notify }) {
+  constructor({ store, apiClient, notify, uploadIdleMs = DEFAULT_UPLOAD_IDLE_MS }) {
     this.store = store;
     this.apiClient = apiClient;
     this.notify = notify;
+    this.uploadIdleMs = uploadIdleMs;
     this.watchers = new Map();
     this.suppressed = new Map();
+    this.pendingUploads = new Map();
     this.socket = null;
+    this.isShuttingDown = false;
   }
 
   async initialize() {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     if (this.store.getToken()) {
       await this.connectSocket();
       await this.restartBindings();
@@ -51,16 +59,37 @@ class SyncManager {
   }
 
   async updateSession() {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     await this.disconnectSocket();
     await this.connectSocket();
     await this.restartBindings();
   }
 
-  async clearSession() {
-    for (const roomId of this.watchers.keys()) {
+  async stopRuntime() {
+    this.clearPendingUploads();
+
+    for (const roomId of [...this.watchers.keys()]) {
       await this.stopWatcher(roomId);
     }
+
     await this.disconnectSocket();
+  }
+
+  async clearSession() {
+    await this.stopRuntime();
+    this.isShuttingDown = false;
+  }
+
+  async shutdown() {
+    if (this.isShuttingDown) {
+      return;
+    }
+
+    this.isShuttingDown = true;
+    await this.stopRuntime();
   }
 
   isIgnored(relativePath) {
@@ -69,6 +98,28 @@ class SyncManager {
 
   suppressionKey(roomId, relativePath) {
     return `${roomId}:${relativePath}`;
+  }
+
+  clearPendingUploads(roomId = null) {
+    for (const [key, timeout] of this.pendingUploads.entries()) {
+      if (roomId && !key.startsWith(`${roomId}:`)) {
+        continue;
+      }
+
+      clearTimeout(timeout);
+      this.pendingUploads.delete(key);
+    }
+  }
+
+  cancelPendingUpload(roomId, relativePath) {
+    const key = this.suppressionKey(roomId, relativePath);
+    const timeout = this.pendingUploads.get(key);
+    if (!timeout) {
+      return;
+    }
+
+    clearTimeout(timeout);
+    this.pendingUploads.delete(key);
   }
 
   isSuppressed(roomId, relativePath) {
@@ -89,6 +140,10 @@ class SyncManager {
   }
 
   async connectSocket() {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const token = this.store.getToken();
     if (!token) {
       return;
@@ -102,11 +157,22 @@ class SyncManager {
     this.socket.on("connect", async () => {
       void (async () => {
         try {
+          if (this.isShuttingDown || !this.socket) {
+            return;
+          }
+
           for (const roomId of Object.keys(this.store.getBindings())) {
+            if (this.isShuttingDown || !this.socket) {
+              return;
+            }
+
             this.socket.emit("room:join", roomId);
             await this.resyncRoom(roomId);
           }
-          this.notify("socket:connected", { connected: true });
+
+          if (!this.isShuttingDown) {
+            this.notify("socket:connected", { connected: true });
+          }
         } catch (error) {
           this.handleSyncError("connect", "socket", this.store.getServerUrl(), error);
         }
@@ -132,11 +198,15 @@ class SyncManager {
     });
 
     this.socket.on("invite:received", (payload) => {
-      this.notify("invite:received", payload);
+      if (!this.isShuttingDown) {
+        this.notify("invite:received", payload);
+      }
     });
 
     this.socket.on("sync:error", (payload) => {
-      this.notify("sync:error", payload);
+      if (!this.isShuttingDown) {
+        this.notify("sync:error", payload);
+      }
     });
   }
 
@@ -149,12 +219,20 @@ class SyncManager {
   }
 
   async restartBindings() {
-    for (const roomId of this.watchers.keys()) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
+    for (const roomId of [...this.watchers.keys()]) {
       await this.stopWatcher(roomId);
     }
 
     const bindings = this.store.getBindings();
     for (const [roomId, binding] of Object.entries(bindings)) {
+      if (this.isShuttingDown) {
+        return;
+      }
+
       await this.startWatcher(roomId, binding.folderPath);
       await this.resyncRoom(roomId);
       await this.syncExistingLocalFiles(roomId);
@@ -162,8 +240,12 @@ class SyncManager {
   }
 
   async bindFolder(roomId, folderPath) {
+    if (this.isShuttingDown) {
+      return this.store.getBinding(roomId);
+    }
+
     await this.store.setBinding(roomId, { folderPath });
-    if (this.socket) {
+    if (this.socket && !this.isShuttingDown) {
       this.socket.emit("room:join", roomId);
     }
     await this.startWatcher(roomId, folderPath);
@@ -173,6 +255,10 @@ class SyncManager {
   }
 
   async startWatcher(roomId, folderPath) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     await this.stopWatcher(roomId);
 
     const watcher = chokidar.watch(folderPath, {
@@ -184,16 +270,14 @@ class SyncManager {
     });
 
     watcher.on("add", (absolutePath) => {
-      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
-        this.handleSyncError("upload", roomId, absolutePath, error);
-      });
+      this.scheduleUpload(roomId, folderPath, absolutePath);
     });
     watcher.on("change", (absolutePath) => {
-      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
-        this.handleSyncError("upload", roomId, absolutePath, error);
-      });
+      this.scheduleUpload(roomId, folderPath, absolutePath);
     });
     watcher.on("unlink", (absolutePath) => {
+      const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
+      this.cancelPendingUpload(roomId, relativePath);
       void this.deleteFromPath(roomId, folderPath, absolutePath).catch((error) => {
         this.handleSyncError("delete", roomId, absolutePath, error);
       });
@@ -203,6 +287,10 @@ class SyncManager {
   }
 
   handleSyncError(action, roomId, absolutePath, error) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     this.notify("sync:error", {
       action,
       roomId,
@@ -212,6 +300,7 @@ class SyncManager {
   }
 
   async stopWatcher(roomId) {
+    this.clearPendingUploads(roomId);
     const watcher = this.watchers.get(roomId);
     if (watcher) {
       await watcher.close();
@@ -219,13 +308,56 @@ class SyncManager {
     }
   }
 
+  scheduleUpload(roomId, folderPath, absolutePath) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
+    const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
+    if (!relativePath || this.isIgnored(relativePath) || this.isSuppressed(roomId, relativePath)) {
+      return;
+    }
+
+    const key = this.suppressionKey(roomId, relativePath);
+    const existingTimeout = this.pendingUploads.get(key);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      if (this.isShuttingDown) {
+        this.pendingUploads.delete(key);
+        return;
+      }
+
+      this.pendingUploads.delete(key);
+      void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
+        this.handleSyncError("upload", roomId, absolutePath, error);
+      });
+    }, this.uploadIdleMs);
+
+    if (typeof timeout.unref === "function") {
+      timeout.unref();
+    }
+
+    this.pendingUploads.set(key, timeout);
+  }
+
   async uploadFromPath(roomId, folderPath, absolutePath) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
     if (!relativePath || this.isIgnored(relativePath) || this.isSuppressed(roomId, relativePath)) {
       return;
     }
 
     const fileBytes = await fs.readFile(absolutePath);
+    if (this.isShuttingDown) {
+      return;
+    }
+
     if (fileBytes.byteLength > MAX_ORIGINAL_FILE_BYTES) {
       throw new Error(
         `File exceeds the 200 MB upload limit: ${relativePath} (${fileBytes.byteLength} bytes).`
@@ -244,21 +376,36 @@ class SyncManager {
       baseVersionId
     });
 
+    if (this.isShuttingDown) {
+      return;
+    }
+
     await this.store.setVersionHead(roomId, response.version.relativePath, response.version.id);
     this.notify("sync:uploaded", response.version);
   }
 
   async deleteFromPath(roomId, folderPath, absolutePath) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
     if (!relativePath || this.isIgnored(relativePath) || this.isSuppressed(roomId, relativePath)) {
       return;
     }
     await this.apiClient.deleteFile(roomId, relativePath);
+    if (this.isShuttingDown) {
+      return;
+    }
     await this.store.removeVersionHead(roomId, relativePath);
     this.notify("sync:deleted", { roomId, relativePath });
   }
 
   async applyRemoteUpdate(payload) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const binding = this.store.getBinding(payload.roomId);
     if (!binding) {
       return;
@@ -270,15 +417,26 @@ class SyncManager {
     }
 
     const fileBytes = await this.apiClient.downloadVersion(payload.roomId, payload.versionId);
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const absolutePath = path.join(binding.folderPath, ...payload.relativePath.split("/"));
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     this.suppress(payload.roomId, payload.relativePath);
     await fs.writeFile(absolutePath, fileBytes);
+    if (this.isShuttingDown) {
+      return;
+    }
     await this.store.setVersionHead(payload.roomId, payload.relativePath, payload.versionId);
     this.notify("sync:downloaded", payload);
   }
 
   async applyRemoteDelete(payload) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const binding = this.store.getBinding(payload.roomId);
     if (!binding) {
       return;
@@ -287,18 +445,33 @@ class SyncManager {
     const absolutePath = path.join(binding.folderPath, ...payload.relativePath.split("/"));
     this.suppress(payload.roomId, payload.relativePath);
     await fs.rm(absolutePath, { force: true });
+    if (this.isShuttingDown) {
+      return;
+    }
     await this.store.removeVersionHead(payload.roomId, payload.relativePath);
     this.notify("sync:remote-delete", payload);
   }
 
   async resyncRoom(roomId) {
+    if (this.isShuttingDown) {
+      return [];
+    }
+
     const binding = this.store.getBinding(roomId);
     if (!binding) {
       return [];
     }
 
     const response = await this.apiClient.listFiles(roomId);
+    if (this.isShuttingDown) {
+      return [];
+    }
+
     for (const file of response.files) {
+      if (this.isShuttingDown) {
+        return response.files;
+      }
+
       const knownVersion = this.store.getVersionHead(roomId, file.relativePath);
       if (knownVersion !== file.currentVersionId) {
         await this.applyRemoteUpdate({
@@ -312,16 +485,28 @@ class SyncManager {
   }
 
   async syncExistingLocalFiles(roomId) {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const binding = this.store.getBinding(roomId);
     if (!binding) {
       return;
     }
 
     const serverFiles = await this.apiClient.listFiles(roomId);
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const serverMap = new Map(serverFiles.files.map((file) => [file.relativePath, file]));
     const localFiles = await walkFiles(binding.folderPath);
 
     for (const absolutePath of localFiles) {
+      if (this.isShuttingDown) {
+        return;
+      }
+
       const relativePath = normalizeRelativePath(path.relative(binding.folderPath, absolutePath));
       if (!relativePath || this.isIgnored(relativePath)) {
         continue;
@@ -332,11 +517,7 @@ class SyncManager {
       const serverFile = serverMap.get(relativePath);
 
       if (!serverFile || serverFile.checksum !== checksum) {
-        try {
-          await this.uploadFromPath(roomId, binding.folderPath, absolutePath);
-        } catch (error) {
-          this.handleSyncError("upload", roomId, absolutePath, error);
-        }
+        this.scheduleUpload(roomId, binding.folderPath, absolutePath);
       } else {
         await this.store.setVersionHead(roomId, relativePath, serverFile.currentVersionId);
       }
