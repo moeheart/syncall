@@ -623,7 +623,10 @@ onMounted(async () => {
           <p class="muted">{{ selectedHistoryPath || "Choose a file from the table to inspect history." }}</p>
           <ul class="drawer-list">
             <li v-for="version in historyVersions" :key="version.id">
-              <div><strong>#{{ version.versionNumber }}</strong><small>{{ formatDate(version.createdAt) }} | {{ version.uploaderUsername }}</small></div>
+              <div>
+                <strong>#{{ version.versionNumber }} <span v-if="version.isCurrentHead">(current)</span></strong>
+                <small>{{ formatDate(version.clientModifiedAt) }} | {{ version.uploaderUsername }} <span v-if="version.isConflict">| conflict</span></small>
+              </div>
               <div class="between"><span>{{ formatBytes(version.originalSize) }} -> {{ formatBytes(version.compressedSize) }}</span><button class="secondary small" @click="restoreVersion(version.id)">Restore</button></div>
             </li>
             <li v-if="historyVersions.length === 0" class="muted">No version history loaded yet.</li>

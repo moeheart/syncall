@@ -16,6 +16,7 @@ type VersionWithUploader = FileVersion & {
   fileEntry: {
     roomId: string;
     relativePath: string;
+    currentVersionId?: string | null;
   };
 };
 
@@ -64,6 +65,8 @@ export function toVersionSummary(version: VersionWithUploader): FileVersionSumma
     compressionAlgorithm: version.compressionAlgorithm as "gzip",
     uploaderUsername: version.uploader.username,
     createdAt: version.createdAt.toISOString(),
+    clientModifiedAt: version.clientModifiedAt.toISOString(),
+    isCurrentHead: version.fileEntry.currentVersionId === version.id,
     isConflict: version.isConflict
   };
 }
@@ -82,7 +85,8 @@ export function toActiveFileSummary(file: ActiveFileWithVersion): ActiveFileSumm
     checksum: file.currentVersion.checksum,
     originalSize: file.currentVersion.originalSize,
     compressedSize: file.currentVersion.compressedSize,
-    updatedAt: file.updatedAt.toISOString(),
+    updatedAt: file.currentVersion.clientModifiedAt.toISOString(),
+    clientModifiedAt: file.currentVersion.clientModifiedAt.toISOString(),
     ownerUsername: file.currentVersion.uploader.username,
     createdAt: file.createdAt.toISOString()
   };

@@ -70,10 +70,8 @@ function deriveFileStatus({
   isRunning,
   localChecksum,
   remoteChecksum,
-  lastSyncedHead,
-  remoteVersionId,
-  localModifiedAt,
-  remoteModifiedAt
+  matchedVersionId,
+  remoteVersionId
 }) {
   if (isRunning && hasLocalFile) {
     return "RUNNING";
@@ -95,16 +93,12 @@ function deriveFileStatus({
     return "SYNCED";
   }
 
-  if (lastSyncedHead && remoteVersionId === lastSyncedHead) {
-    return "MODIFIED_LOCAL";
-  }
-
-  if (lastSyncedHead && remoteVersionId && remoteVersionId !== lastSyncedHead) {
+  if (matchedVersionId && remoteVersionId && matchedVersionId !== remoteVersionId) {
     return "MODIFIED_REMOTE";
   }
 
-  if (remoteModifiedAt && localModifiedAt && new Date(remoteModifiedAt).getTime() > new Date(localModifiedAt).getTime()) {
-    return "MODIFIED_REMOTE";
+  if (matchedVersionId && remoteVersionId && matchedVersionId === remoteVersionId) {
+    return "SYNCED";
   }
 
   return "MODIFIED_LOCAL";
@@ -137,6 +131,7 @@ class SyncManager {
     this.isShuttingDown = false;
     this.runningFiles = new Map();
     this.roomStatusLists = new Map();
+    this.historyCache = new Map();
   }
 
   async initialize() {
@@ -176,6 +171,7 @@ class SyncManager {
   async clearSession() {
     await this.stopRuntime();
     this.roomStatusLists.clear();
+    this.historyCache.clear();
     this.isShuttingDown = false;
   }
 
@@ -338,6 +334,13 @@ class SyncManager {
       });
     });
 
+    this.socket.on("sync:status-changed", (payload) => {
+      if (!this.isShuttingDown) {
+        this.invalidateHistoryCache(payload.roomId, payload.relativePath);
+        this.notify("sync:status-changed", payload);
+      }
+    });
+
     this.socket.on("invite:received", (payload) => {
       if (!this.isShuttingDown) {
         this.notify("invite:received", payload);
@@ -426,6 +429,40 @@ class SyncManager {
       path: absolutePath,
       message: error instanceof Error ? error.message : String(error)
     });
+  }
+
+  historyCacheKey(roomId, relativePath) {
+    return `${roomId}:${relativePath}`;
+  }
+
+  invalidateHistoryCache(roomId = null, relativePath = null) {
+    if (!roomId) {
+      this.historyCache.clear();
+      return;
+    }
+
+    if (!relativePath) {
+      for (const key of [...this.historyCache.keys()]) {
+        if (key.startsWith(`${roomId}:`)) {
+          this.historyCache.delete(key);
+        }
+      }
+      return;
+    }
+
+    this.historyCache.delete(this.historyCacheKey(roomId, relativePath));
+  }
+
+  async getHistoryVersions(roomId, relativePath) {
+    const cacheKey = this.historyCacheKey(roomId, relativePath);
+    const cached = this.historyCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const response = await this.apiClient.listHistory(roomId, relativePath);
+    this.historyCache.set(cacheKey, response.versions);
+    return response.versions;
   }
 
   async bindFolder(roomId, folderPath) {
@@ -552,15 +589,6 @@ class SyncManager {
     const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
     this.cancelPendingUpload(roomId, relativePath);
     this.clearFileRunning(roomId, relativePath);
-
-    if (!this.store.getVersionHead(roomId, relativePath)) {
-      await this.refreshRoomStatus(roomId);
-      return;
-    }
-
-    await this.deleteFromPath(roomId, folderPath, absolutePath).catch((error) => {
-      this.handleSyncError("delete", roomId, absolutePath, error);
-    });
     await this.refreshRoomStatus(roomId);
   }
 
@@ -630,11 +658,13 @@ class SyncManager {
     const compressedBytes = gzipSync(fileBytes);
     const checksum = createHash("sha256").update(fileBytes).digest("hex");
     const baseVersionId = this.store.getVersionHead(roomId, relativePath);
+    const fileStat = await fs.stat(absolutePath);
     const response = await this.apiClient.uploadFile(roomId, {
       relativePath,
       checksum,
       originalSize: fileBytes.byteLength,
       compressedSize: compressedBytes.byteLength,
+      clientModifiedAt: fileStat.mtime.toISOString(),
       compressedBytes,
       baseVersionId
     });
@@ -644,24 +674,8 @@ class SyncManager {
     }
 
     await this.store.setVersionHead(roomId, response.version.relativePath, response.version.id);
+    this.invalidateHistoryCache(roomId, response.version.relativePath);
     this.notify("sync:uploaded", response.version);
-  }
-
-  async deleteFromPath(roomId, folderPath, absolutePath) {
-    if (this.isShuttingDown) {
-      return;
-    }
-
-    const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
-    if (!relativePath || this.isIgnored(relativePath) || this.isSuppressed(roomId, relativePath)) {
-      return;
-    }
-    await this.apiClient.deleteFile(roomId, relativePath);
-    if (this.isShuttingDown) {
-      return;
-    }
-    await this.store.removeVersionHead(roomId, relativePath);
-    this.notify("sync:deleted", { roomId, relativePath });
   }
 
   async applyRemoteUpdate(payload) {
@@ -687,6 +701,7 @@ class SyncManager {
       return;
     }
     await this.store.setVersionHead(payload.roomId, payload.relativePath, payload.versionId);
+    this.invalidateHistoryCache(payload.roomId, payload.relativePath);
     this.notify("sync:downloaded", payload);
   }
 
@@ -713,6 +728,8 @@ class SyncManager {
     if (this.isShuttingDown) {
       return;
     }
+
+    this.invalidateHistoryCache(payload.roomId, payload.relativePath);
 
     const syncMode = this.store.getRoomSyncMode(payload.roomId);
     if (syncMode === "RUNNING") {
@@ -796,16 +813,26 @@ class SyncManager {
       const lastSyncedHead = this.store.getVersionHead(roomId, relativePath);
       const needsChecksum = Boolean(localFile && remoteFile);
       const localChecksum = needsChecksum ? await this.ensureLocalChecksum(localFile) : null;
+      let matchedVersionId = null;
+
+      if (localFile && remoteFile) {
+        const historyVersions = await this.getHistoryVersions(roomId, relativePath);
+        const matchedVersion = historyVersions.find((version) => version.checksum === localChecksum);
+        matchedVersionId = matchedVersion?.id ?? null;
+
+        if (matchedVersionId && matchedVersionId !== lastSyncedHead) {
+          await this.store.setVersionHead(roomId, relativePath, matchedVersionId);
+        }
+      }
+
       const status = deriveFileStatus({
         hasLocalFile: Boolean(localFile),
         hasRemoteFile: Boolean(remoteFile),
         isRunning: runningFiles.has(relativePath),
         localChecksum,
         remoteChecksum: remoteFile?.checksum ?? null,
-        lastSyncedHead,
+        matchedVersionId,
         remoteVersionId: remoteFile?.currentVersionId ?? null,
-        localModifiedAt: localFile?.modifiedAt ?? null,
-        remoteModifiedAt: remoteFile?.updatedAt ?? null
       });
 
       if (status === "SYNCED" && remoteFile && lastSyncedHead !== remoteFile.currentVersionId) {

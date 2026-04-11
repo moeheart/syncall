@@ -120,6 +120,7 @@ model FileVersion {
   isConflict            Boolean      @default(false)
   uploaderId            String
   createdAt             DateTime     @default(now())
+  clientModifiedAt      DateTime
   fileEntry             FileEntry     @relation("FileVersions", fields: [fileEntryId], references: [id], onDelete: Cascade)
   parentVersion         FileVersion?  @relation("FileVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
   childVersions         FileVersion[] @relation("FileVersionParent")

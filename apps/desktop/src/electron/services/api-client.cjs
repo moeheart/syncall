@@ -138,6 +138,7 @@ class ApiClient {
     form.set("checksum", payload.checksum);
     form.set("originalSize", String(payload.originalSize));
     form.set("compressedSize", String(payload.compressedSize));
+    form.set("clientModifiedAt", payload.clientModifiedAt);
     if (payload.baseVersionId) {
       form.set("baseVersionId", payload.baseVersionId);
     }

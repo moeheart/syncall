@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compressBuffer, decompressBuffer } from "../src/utils/compression";
-import { buildConflictPath, normalizeRelativePath } from "../src/utils/paths";
+import { normalizeRelativePath } from "../src/utils/paths";
 import { sha256 } from "../src/utils/checksum";
 
 describe("compression utilities", () => {
@@ -21,11 +21,6 @@ describe("path helpers", () => {
 
   it("rejects parent traversal", () => {
     expect(() => normalizeRelativePath("../secret.txt")).toThrow(/Invalid relative path/);
-  });
-
-  it("creates timestamped conflict file names", () => {
-    const conflictPath = buildConflictPath("logs/service.log", "alice", new Date("2026-04-09T12:00:00.000Z"));
-    expect(conflictPath).toContain("service.conflict-alice-2026-04-09T12-00-00-000Z.log");
   });
 });
 

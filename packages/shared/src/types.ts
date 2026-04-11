@@ -59,6 +59,8 @@ export interface FileVersionSummary {
   compressionAlgorithm: CompressionAlgorithm;
   uploaderUsername: string;
   createdAt: string;
+  clientModifiedAt: string;
+  isCurrentHead: boolean;
   isConflict: boolean;
 }
 
@@ -72,6 +74,7 @@ export interface ActiveFileSummary {
   originalSize: number;
   compressedSize: number;
   updatedAt: string;
+  clientModifiedAt: string;
   ownerUsername: string;
   createdAt: string;
 }
@@ -137,6 +140,7 @@ export interface FileUpdateEvent {
   compressedSize: number;
   updatedBy: string;
   createdAt: string;
+  clientModifiedAt: string;
   isConflict: boolean;
 }
 

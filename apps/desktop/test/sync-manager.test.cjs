@@ -157,7 +157,7 @@ test("deriveFileStatus classifies common room file states", () => {
       isRunning: false,
       localChecksum: "a",
       remoteChecksum: "b",
-      lastSyncedHead: "v1",
+      matchedVersionId: null,
       remoteVersionId: "v1"
     }),
     "MODIFIED_LOCAL"
@@ -170,10 +170,23 @@ test("deriveFileStatus classifies common room file states", () => {
       isRunning: false,
       localChecksum: "a",
       remoteChecksum: "b",
-      lastSyncedHead: "v1",
+      matchedVersionId: "v1",
       remoteVersionId: "v2"
     }),
     "MODIFIED_REMOTE"
+  );
+
+  assert.equal(
+    deriveFileStatus({
+      hasLocalFile: true,
+      hasRemoteFile: true,
+      isRunning: false,
+      localChecksum: "a",
+      remoteChecksum: "b",
+      matchedVersionId: "v2",
+      remoteVersionId: "v2"
+    }),
+    "SYNCED"
   );
 
   assert.equal(

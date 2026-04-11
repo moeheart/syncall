@@ -38,6 +38,7 @@ export const uploadMetadataSchema = z.object({
   checksum: z.string().length(64),
   originalSize: z.coerce.number().int().min(0).max(MAX_ORIGINAL_FILE_BYTES),
   compressedSize: z.coerce.number().int().min(0).max(MAX_COMPRESSED_UPLOAD_BYTES),
+  clientModifiedAt: z.string().datetime(),
   baseVersionId: z.string().cuid().optional().nullable()
 });
 

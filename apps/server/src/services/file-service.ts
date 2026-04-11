@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma";
 import { config } from "../config";
 import { compressBuffer, decompressBuffer } from "../utils/compression";
 import { sha256 } from "../utils/checksum";
-import { buildConflictPath, normalizeRelativePath } from "../utils/paths";
+import { normalizeRelativePath } from "../utils/paths";
 
 async function ensureStorageDir(roomId: string) {
   const dir = path.join(config.storageDir, roomId);
@@ -30,11 +30,17 @@ export async function createVersionFromCompressedUpload(input: {
   clientChecksum: string;
   originalSize: number;
   compressedSize: number;
+  clientModifiedAt: string;
   baseVersionId?: string | null;
 }) {
   const normalizedPath = normalizeRelativePath(input.relativePath);
   const decompressed = await decompressBuffer(input.compressedBytes);
   const checksum = sha256(decompressed);
+  const clientModifiedAt = new Date(input.clientModifiedAt);
+
+  if (Number.isNaN(clientModifiedAt.getTime())) {
+    throw new Error("Invalid client modification time.");
+  }
 
   if (checksum !== input.clientChecksum) {
     throw new Error("Checksum mismatch.");
@@ -66,15 +72,11 @@ export async function createVersionFromCompressedUpload(input: {
       !!existingEntry.currentVersionId &&
       input.baseVersionId !== existingEntry.currentVersionId;
 
-    const finalRelativePath = isConflict
-      ? buildConflictPath(normalizedPath, input.uploaderUsername)
-      : normalizedPath;
-
     const fileEntry = await tx.fileEntry.upsert({
       where: {
         roomId_relativePath: {
           roomId: input.roomId,
-          relativePath: finalRelativePath
+          relativePath: normalizedPath
         }
       },
       update: {
@@ -82,7 +84,7 @@ export async function createVersionFromCompressedUpload(input: {
       },
       create: {
         roomId: input.roomId,
-        relativePath: finalRelativePath
+        relativePath: normalizedPath
       }
     });
 
@@ -106,7 +108,8 @@ export async function createVersionFromCompressedUpload(input: {
         compressedSize: input.compressedSize,
         compressionAlgorithm: COMPRESSION_ALGORITHM,
         isConflict,
-        uploaderId: input.uploaderId
+        uploaderId: input.uploaderId,
+        clientModifiedAt
       }
     });
 
@@ -128,26 +131,40 @@ export async function createVersionFromCompressedUpload(input: {
       }
     });
 
-    await tx.fileEntry.update({
-      where: { id: fileEntry.id },
-      data: {
-        currentVersionId: savedVersion.id,
-        deletedAt: null
-      }
-    });
+    const shouldPromoteToHead =
+      !existingEntry?.currentVersion ||
+      clientModifiedAt.getTime() > existingEntry.currentVersion.clientModifiedAt.getTime() ||
+      clientModifiedAt.getTime() === existingEntry.currentVersion.clientModifiedAt.getTime();
+
+    if (shouldPromoteToHead) {
+      await tx.fileEntry.update({
+        where: { id: fileEntry.id },
+        data: {
+          currentVersionId: savedVersion.id,
+          deletedAt: null
+        }
+      });
+    } else if (fileEntry.deletedAt) {
+      await tx.fileEntry.update({
+        where: { id: fileEntry.id },
+        data: {
+          deletedAt: null
+        }
+      });
+    }
 
     await tx.syncEvent.create({
       data: {
         roomId: input.roomId,
         actorId: input.uploaderId,
         type: SyncEventType.FILE_UPLOADED,
-        relativePath: finalRelativePath
+        relativePath: normalizedPath
       }
     });
 
     return {
       version: savedVersion,
-      relativePath: finalRelativePath,
+      relativePath: normalizedPath,
       roomId: input.roomId
     };
   });
@@ -208,7 +225,8 @@ export async function listHistoryForRoom(roomId: string, relativePath: string) {
       fileEntry: {
         select: {
           roomId: true,
-          relativePath: true
+          relativePath: true,
+          currentVersionId: true
         }
       }
     },
@@ -279,7 +297,8 @@ export async function restoreVersion(input: { roomId: string; versionId: string;
         compressedSize: selected.compressedSize,
         compressionAlgorithm: COMPRESSION_ALGORITHM,
         isConflict: false,
-        uploaderId: input.actorId
+        uploaderId: input.actorId,
+        clientModifiedAt: new Date()
       }
     });
 
@@ -295,7 +314,8 @@ export async function restoreVersion(input: { roomId: string; versionId: string;
         fileEntry: {
           select: {
             roomId: true,
-            relativePath: true
+            relativePath: true,
+            currentVersionId: true
           }
         }
       }

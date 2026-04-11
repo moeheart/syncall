@@ -98,6 +98,7 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
       checksum: fieldValue(file.fields.checksum),
       originalSize: fieldValue(file.fields.originalSize),
       compressedSize: fieldValue(file.fields.compressedSize),
+      clientModifiedAt: fieldValue(file.fields.clientModifiedAt),
       baseVersionId: fieldValue(file.fields.baseVersionId)
     };
 
@@ -117,6 +118,7 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
       clientChecksum: metadata.checksum,
       originalSize: metadata.originalSize,
       compressedSize: metadata.compressedSize,
+      clientModifiedAt: metadata.clientModifiedAt,
       baseVersionId: metadata.baseVersionId
     });
 
@@ -127,13 +129,13 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
           select: { username: true }
         },
         fileEntry: {
-          select: { relativePath: true, roomId: true }
+          select: { relativePath: true, roomId: true, currentVersionId: true }
         }
       }
     });
 
     const summary = toVersionSummary(version);
-    app.io.to(metadata.roomId).emit(SOCKET_EVENTS.fileUpdated, {
+    const payload = {
       roomId: version.fileEntry.roomId,
       relativePath: version.fileEntry.relativePath,
       versionId: version.id,
@@ -143,8 +145,15 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
       compressedSize: version.compressedSize,
       updatedBy: version.uploader.username,
       createdAt: version.createdAt.toISOString(),
+      clientModifiedAt: version.clientModifiedAt.toISOString(),
       isConflict: version.isConflict
-    });
+    };
+
+    if (summary.isCurrentHead) {
+      app.io.to(metadata.roomId).emit(SOCKET_EVENTS.fileUpdated, payload);
+    } else {
+      app.io.to(metadata.roomId).emit(SOCKET_EVENTS.statusChanged, payload);
+    }
 
     return reply.code(201).send({ version: summary });
   });
@@ -182,6 +191,7 @@ const fileRoutes: FastifyPluginAsync = async (app) => {
       compressedSize: restored.compressedSize,
       updatedBy: restored.uploader.username,
       createdAt: restored.createdAt.toISOString(),
+      clientModifiedAt: restored.clientModifiedAt.toISOString(),
       isConflict: restored.isConflict
     });
 
