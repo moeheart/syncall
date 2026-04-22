@@ -67,7 +67,7 @@ declare global {
   }
 }
 
-const state = ref<DesktopState>({ appVersion: "1.0.0", serverUrl: "http://syncall.moeheart.cn", token: "", user: null, bindings: {} });
+const state = ref<DesktopState>({ appVersion: "1.0.2", serverUrl: "http://syncall.moeheart.cn", token: "", user: null, bindings: {} });
 const rooms = ref<RoomSummary[]>([]);
 const invites = ref<InviteSummary[]>([]);
 const events = ref<SyncEventSummary[]>([]);

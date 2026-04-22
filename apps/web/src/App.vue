@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import type { CompatibilitySummary, InviteSummary, RoomSummary, SyncEventSummary } from "@syncall/shared";
 
 const apiBaseUrl = ref("http://syncall.moeheart.cn");
-const clientVersion = "1.0.0";
+const clientVersion = "1.0.2";
 const token = ref(localStorage.getItem("syncall-web-token") ?? "");
 const email = ref("");
 const password = ref("");

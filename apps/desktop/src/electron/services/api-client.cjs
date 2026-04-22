@@ -3,7 +3,7 @@ const { Blob } = require("node:buffer");
 class ApiClient {
   constructor(store, options = {}) {
     this.store = store;
-    this.clientVersion = options.clientVersion ?? "1.0.0";
+    this.clientVersion = options.clientVersion ?? "1.0.2";
     this.clientName = options.clientName ?? "desktop";
   }
 

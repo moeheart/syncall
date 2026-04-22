@@ -5,7 +5,7 @@ const { gzipSync } = require("node:zlib");
 const chokidar = require("chokidar");
 const { io } = require("socket.io-client");
 
-const IGNORED_PATTERNS = [/^\.syncall(\/|\\|$)/, /\.tmp$/i, /\.swp$/i, /~$/];
+const BUILT_IN_IGNORED_PATTERNS = [/^\.syncall(\/|\\|$)/, /\.tmp$/i, /\.swp$/i, /~$/, /\.jcl\.log$/i];
 const MAX_ORIGINAL_FILE_BYTES = 200 * 1024 * 1024;
 const DEFAULT_UPLOAD_IDLE_MS = 4000;
 
@@ -118,6 +118,27 @@ async function readChecksum(absolutePath) {
   return createHash("sha256").update(fileBytes).digest("hex");
 }
 
+function shouldNotifyRoomFileRefresh(previousFile, nextFile) {
+  if (!previousFile && !nextFile) {
+    return false;
+  }
+
+  if (!previousFile || !nextFile) {
+    return true;
+  }
+
+  return previousFile.status !== nextFile.status ||
+    previousFile.localExists !== nextFile.localExists ||
+    previousFile.remoteExists !== nextFile.remoteExists ||
+    previousFile.ownerUsername !== nextFile.ownerUsername ||
+    previousFile.localSize !== nextFile.localSize ||
+    previousFile.remoteSize !== nextFile.remoteSize ||
+    previousFile.localModifiedAt !== nextFile.localModifiedAt ||
+    previousFile.remoteModifiedAt !== nextFile.remoteModifiedAt ||
+    previousFile.currentVersionId !== nextFile.currentVersionId ||
+    previousFile.currentVersionNumber !== nextFile.currentVersionNumber;
+}
+
 class SyncManager {
   constructor({ store, apiClient, notify, uploadIdleMs = DEFAULT_UPLOAD_IDLE_MS }) {
     this.store = store;
@@ -185,7 +206,7 @@ class SyncManager {
   }
 
   isIgnored(relativePath) {
-    return IGNORED_PATTERNS.some((pattern) => pattern.test(relativePath));
+    return BUILT_IN_IGNORED_PATTERNS.some((pattern) => pattern.test(relativePath));
   }
 
   suppressionKey(roomId, relativePath) {
@@ -564,35 +585,69 @@ class SyncManager {
       return;
     }
 
+    const previousStatuses = this.getCachedRoomStatuses(roomId);
+    const previousFile = previousStatuses.find((entry) => entry.relativePath === relativePath) ?? null;
     const statuses = await this.refreshRoomStatus(roomId);
-    const file = statuses.find((entry) => entry.relativePath === relativePath);
+    const file = statuses.find((entry) => entry.relativePath === relativePath) ?? null;
     if (!file) {
+      if (shouldNotifyRoomFileRefresh(previousFile, null)) {
+        this.notify("sync:status-changed", { roomId, relativePath, status: null });
+      }
       return;
     }
 
+    const existedBefore = Boolean(previousFile);
     const hasTrackedRemoteVersion = Boolean(file.remoteExists || this.store.getVersionHead(roomId, relativePath));
     if (!hasTrackedRemoteVersion) {
+      if (!existedBefore && file.status === "OFFLINE" && this.store.getRoomSyncMode(roomId) === "RUNNING") {
+        this.scheduleUpload(roomId, folderPath, absolutePath, { uploadAfterQuiet: true });
+        return;
+      }
+
+      if (shouldNotifyRoomFileRefresh(previousFile, file)) {
+        this.notify("sync:status-changed", { roomId, relativePath, status: file.status });
+      }
       return;
     }
 
     if (file.status === "SYNCED" || file.status === "OFFLINE" || file.status === "REMOTE") {
+      if (shouldNotifyRoomFileRefresh(previousFile, file)) {
+        this.notify("sync:status-changed", { roomId, relativePath, status: file.status });
+      }
       return;
     }
 
-    this.scheduleUpload(roomId, folderPath, absolutePath);
+    this.scheduleUpload(roomId, folderPath, absolutePath, { uploadAfterQuiet: false });
   }
 
   async handleLocalDelete(roomId, folderPath, absolutePath) {
     const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
     this.cancelPendingUpload(roomId, relativePath);
     this.clearFileRunning(roomId, relativePath);
-    await this.refreshRoomStatus(roomId);
+    if (!relativePath || this.isIgnored(relativePath)) {
+      return;
+    }
+
+    const previousStatuses = this.getCachedRoomStatuses(roomId);
+    const previousFile = previousStatuses.find((entry) => entry.relativePath === relativePath) ?? null;
+    const statuses = await this.refreshRoomStatus(roomId);
+    const file = statuses.find((entry) => entry.relativePath === relativePath) ?? null;
+
+    if (shouldNotifyRoomFileRefresh(previousFile, file)) {
+      this.notify("sync:status-changed", {
+        roomId,
+        relativePath,
+        status: file?.status ?? null
+      });
+    }
   }
 
-  scheduleUpload(roomId, folderPath, absolutePath) {
+  scheduleUpload(roomId, folderPath, absolutePath, options = {}) {
     if (this.isShuttingDown) {
       return;
     }
+
+    const uploadAfterQuiet = options.uploadAfterQuiet === true;
 
     const relativePath = normalizeRelativePath(path.relative(folderPath, absolutePath));
     if (!relativePath || this.isIgnored(relativePath) || this.isSuppressed(roomId, relativePath)) {
@@ -616,6 +671,17 @@ class SyncManager {
       }
 
       this.pendingUploads.delete(key);
+
+      if (uploadAfterQuiet) {
+        void this.uploadFromPath(roomId, folderPath, absolutePath).catch((error) => {
+          this.handleSyncError("upload", roomId, absolutePath, error);
+        }).finally(() => {
+          this.clearFileRunning(roomId, relativePath);
+          void this.refreshRoomStatus(roomId);
+        });
+        return;
+      }
+
       this.clearFileRunning(roomId, relativePath);
       void this.refreshRoomStatus(roomId).then((statuses) => {
         const file = statuses.find((entry) => entry.relativePath === relativePath);
@@ -926,7 +992,9 @@ class SyncManager {
 }
 
 module.exports = {
+  BUILT_IN_IGNORED_PATTERNS,
   SyncManager,
   deriveFileStatus,
+  shouldNotifyRoomFileRefresh,
   summarizeRoomStatuses
 };

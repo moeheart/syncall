@@ -61,7 +61,7 @@ Approved by Edgar
 
 ### Edition rule
 
-- The current release edition is `1.0.0`.
+- The current release edition is `1.0.2`.
 - Edition digits mean:
   `major.minor.patch`
   Major = big features, Minor = small features, Patch = bug fixes.

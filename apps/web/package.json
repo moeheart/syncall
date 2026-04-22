@@ -1,6 +1,6 @@
 {
   "name": "@syncall/web",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@syncall/shared": "1.0.0",
+    "@syncall/shared": "1.0.2",
     "vue": "^3.5.13"
   },
   "devDependencies": {
